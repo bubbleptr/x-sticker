@@ -27,6 +27,8 @@ npm test
 npm run build
 ```
 
+Node 侧渲染（单测 / `scripts/render-fixture.ts`）会注册系统里的文泉驿微米黑等 CJK 字体；Linux 建议安装 `fonts-wqy-microhei`（以及可选的 `fonts-noto-cjk`）。画布会去掉 emoji，避免缺字形变成 □。
+
 产物在 `dist/`。Chrome → 扩展程序 → 开发者模式 → **加载已解压的扩展程序** → 选 `dist`。
 
 1. 打开一条公开文字推文（`https://x.com/.../status/...`）
