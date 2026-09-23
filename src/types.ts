@@ -30,7 +30,8 @@ export const DEFAULT_RENDER_OPTIONS: RenderOptions = {
   hideHandle: true,
   showAuthor: true,
   aspect: '3:4',
-  background: { kind: 'solid', color: '#f7f4ef' },
+  /** Outer frame behind the white X post card. */
+  background: { kind: 'gradient', from: '#1d9bf0', to: '#7856ff' },
 }
 
 export const ASPECT_SIZE: Record<AspectRatio, { width: number; height: number }> = {

@@ -21,7 +21,12 @@ export default defineManifest({
     },
   ],
   permissions: ['activeTab', 'downloads'],
-  host_permissions: ['https://x.com/*', 'https://twitter.com/*'],
+  host_permissions: [
+    'https://x.com/*',
+    'https://twitter.com/*',
+    'https://pbs.twimg.com/*',
+    'https://abs.twimg.com/*',
+  ],
   icons: {
     '16': 'public/icons/icon16.png',
     '48': 'public/icons/icon48.png',

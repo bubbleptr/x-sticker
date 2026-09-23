@@ -1,7 +1,7 @@
 # 卡贴 Katie
 
-把 X / Twitter **文字贴** 转成竖版引用卡片 PNG，方便再发到抖音 / 小红书。  
-Turn X/Twitter text posts into vertical quote-card PNGs for reuse elsewhere.
+把 X / Twitter **文字贴** 转成竖版「帖子卡片」PNG（白底贴 + 外层背景），方便再发到抖音 / 小红书。  
+Turn X/Twitter text posts into vertical X-style post-card PNGs for reuse elsewhere.
 
 **本仓库 v0.1**：仅「抓取 → 预览 → 本地下载」。不含抖音 / 小红书发布。
 
@@ -27,7 +27,7 @@ npm test
 npm run build
 ```
 
-Node 侧渲染（单测 / `scripts/render-fixture.ts`）会注册系统里的文泉驿微米黑等 CJK 字体；Linux 建议安装 `fonts-wqy-microhei`（以及可选的 `fonts-noto-cjk`）。画布会去掉 emoji，避免缺字形变成 □。
+Node 侧渲染（单测 / `scripts/render-fixture.ts`）会注册系统里的文泉驿微米黑等 CJK 字体；Linux 建议安装 `fonts-wqy-microhei`（以及可选的 `fonts-noto-cjk`）。画布会去掉 emoji，避免缺字形变成 □。头像来自 `pbs.twimg.com` 时需扩展 host 权限（已写入 manifest）。
 
 产物在 `dist/`。Chrome → 扩展程序 → 开发者模式 → **加载已解压的扩展程序** → 选 `dist`。
 

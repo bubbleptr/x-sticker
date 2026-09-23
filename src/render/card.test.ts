@@ -1,6 +1,7 @@
 import { createCanvas } from '@napi-rs/canvas'
-import { describe, expect, it, beforeAll } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 import {
+  avoidLineStartPunctuation,
   cardVisibleText,
   isPng,
   renderCardPng,
@@ -24,7 +25,7 @@ const baseOptions: RenderOptions = {
   hideHandle: true,
   showAuthor: true,
   aspect: '3:4',
-  background: { kind: 'solid', color: '#f7f4ef' },
+  background: { kind: 'gradient', from: '#1d9bf0', to: '#7856ff' },
 }
 
 const nodeCreateCanvas: CreateCanvas = (width, height) => {
@@ -55,7 +56,6 @@ describe('tokenizeForWrap / wrapLines', () => {
   it('does not break mid-Latin-word when wrapping', () => {
     const canvas = createCanvas(400, 200)
     const ctx = canvas.getContext('2d')
-    ctx.font = '32px "WenQuanYi Micro Hei"'
     const word = 'tweet-sticker'
     const lines = wrapLines(
       ctx as unknown as CanvasRenderingContext2D,
@@ -73,13 +73,19 @@ describe('tokenizeForWrap / wrapLines', () => {
     const tokens = tokenizeForWrap('竖版卡片')
     expect(tokens).toEqual(['竖', '版', '卡', '片'])
   })
+
+  it('avoids CJK punctuation at line start', () => {
+    const fixed = avoidLineStartPunctuation(['今天很好', '，继续写', '。结束'])
+    expect(fixed[1]?.startsWith('，')).toBe(false)
+    expect(fixed.some((l) => l.includes('，'))).toBe(true)
+  })
 })
 
 describe('cardVisibleText', () => {
   it('omits @handle when hideHandle is true', () => {
     const visible = cardVisibleText(fixture, { hideHandle: true, showAuthor: true })
     expect(visible.handleLine).toBeUndefined()
-    expect(visible.authorLine).toBe('林间笔记')
+    expect(visible.displayName).toBe('林间笔记')
     expect(visible.body).toContain('效率')
   })
 
@@ -94,7 +100,7 @@ describe('cardVisibleText', () => {
       { hideHandle: false, showAuthor: false },
     )
     expect(visible.handleLine).toBe('@already')
-    expect(visible.authorLine).toBeUndefined()
+    expect(visible.displayName).toBeUndefined()
   })
 })
 

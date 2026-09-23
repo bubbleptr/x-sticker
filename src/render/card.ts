@@ -15,17 +15,21 @@ export type CardCanvas = {
 }
 
 export type CreateCanvas = (width: number, height: number) => CardCanvas
+export type LoadImageFn = (url: string) => Promise<CanvasImageSource | null>
 
 /** Prefer CJK-capable faces first; emoji is stripped (see sanitizeCardText). */
 export const FONT_STACK =
   '"WenQuanYi Micro Hei", "Noto Sans SC", "Noto Sans CJK SC", "Source Han Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans", "Segoe UI", sans-serif'
 
-const PAD_RATIO = 0.11
-const MIN_BODY_PX = 36
-const MAX_BODY_PX = 64
-const AUTHOR_PX = 30
-const HANDLE_PX = 24
-const QUOTE_PX = 72
+const OUTER_PAD_RATIO = 0.1
+const MIN_BODY_PX = 32
+const MAX_BODY_PX = 48
+const CARD_RADIUS = 28
+const AVATAR_SIZE = 64
+const X_LOGO_SIZE = 28
+
+/** Characters that should not start a line (CJK + common punct). */
+export const NO_LINE_START = '，。！？；、：）》」』…,.!?;:)]}'
 
 /** Emoji / pictographs that commonly tofu on canvas without color-emoji shaping. */
 const EMOJI_RE = /\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?)*/gu
@@ -36,9 +40,9 @@ const KEYCAP_RE = /[0-9#*]\uFE0F?\u20E3/g
 export function cardVisibleText(
   post: PostText,
   options: Pick<RenderOptions, 'hideHandle' | 'showAuthor'>,
-): { body: string; authorLine?: string; handleLine?: string } {
+): { body: string; displayName?: string; handleLine?: string } {
   const body = sanitizeCardText(post.text)
-  const authorLine =
+  const displayName =
     options.showAuthor && post.authorDisplayName?.trim()
       ? sanitizeCardText(post.authorDisplayName)
       : undefined
@@ -46,7 +50,7 @@ export function cardVisibleText(
     !options.hideHandle && post.handle?.trim()
       ? `@${post.handle.trim().replace(/^@+/, '')}`
       : undefined
-  return { body, authorLine, handleLine }
+  return { body, displayName, handleLine }
 }
 
 /**
@@ -65,19 +69,7 @@ export function sanitizeCardText(raw: string): string {
     .trim()
 }
 
-function isCjkChar(ch: string): boolean {
-  const cp = ch.codePointAt(0) ?? 0
-  return (
-    (cp >= 0x3040 && cp <= 0x30ff) || // Hiragana/Katakana
-    (cp >= 0x3400 && cp <= 0x9fff) || // CJK Unified
-    (cp >= 0xf900 && cp <= 0xfaff) || // CJK Compatibility
-    (cp >= 0xff00 && cp <= 0xffef) || // Half/fullwidth forms
-    (cp >= 0x3000 && cp <= 0x303f) // CJK punctuation
-  )
-}
-
 function isLatinWordChar(ch: string): boolean {
-  // Keep hyphenated compounds (tweet-sticker) and apostrophes intact.
   return /[A-Za-z0-9]/.test(ch) || ch === "'" || ch === '’' || ch === '_' || ch === '-'
 }
 
@@ -110,7 +102,6 @@ export function tokenizeForWrap(text: string): string[] {
         word += chars[i]
         i += 1
       }
-      // Keep trailing ASCII punctuation with the word when possible (.,!?:;)
       while (i < chars.length && /[.,!?;:]/.test(chars[i]!)) {
         word += chars[i]
         i += 1
@@ -118,11 +109,24 @@ export function tokenizeForWrap(text: string): string[] {
       tokens.push(word)
       continue
     }
-    // CJK or other: one grapheme / code point
     tokens.push(ch)
     i += 1
   }
   return tokens
+}
+
+/** Move leading punctuation onto the previous line. */
+export function avoidLineStartPunctuation(lines: string[]): string[] {
+  const out = lines.map((l) => l)
+  for (let i = 1; i < out.length; i++) {
+    while (out[i] && NO_LINE_START.includes([...out[i]!][0]!)) {
+      const chars = [...out[i]!]
+      const head = chars.shift()!
+      out[i - 1] = `${out[i - 1] ?? ''}${head}`
+      out[i] = chars.join('')
+    }
+  }
+  return out.map((l) => l.trimEnd()).filter((l, idx) => l.length > 0 || idx === 0)
 }
 
 export function wrapLines(
@@ -164,13 +168,23 @@ export function wrapLines(
         continue
       }
 
+      // Prefer keeping CJK punctuation with previous char (no line-start ，。)
+      if (
+        current &&
+        token.length === 1 &&
+        NO_LINE_START.includes(token) &&
+        ctx.measureText(current + token).width <= maxWidth * 1.02
+      ) {
+        current += token
+        continue
+      }
+
       const candidate = current ? current + token : token
       if (ctx.measureText(candidate).width <= maxWidth) {
         current = candidate
         continue
       }
 
-      // Don't start a line with space; break before this token when possible.
       if (current) flush()
 
       if (ctx.measureText(token).width <= maxWidth) {
@@ -178,7 +192,6 @@ export function wrapLines(
         continue
       }
 
-      // Last resort: overlong single Latin token — break at maxWidth (rare).
       let chunk = ''
       for (const ch of token) {
         const next = chunk + ch
@@ -194,7 +207,7 @@ export function wrapLines(
     flush()
   }
 
-  return lines.length > 0 ? lines : ['']
+  return avoidLineStartPunctuation(lines.length > 0 ? lines : [''])
 }
 
 function fillBackground(
@@ -208,22 +221,29 @@ function fillBackground(
     ctx.fillRect(0, 0, width, height)
     return
   }
-  const grad = ctx.createLinearGradient(0, 0, 0, height)
+  const grad = ctx.createLinearGradient(0, 0, width * 0.2, height)
   grad.addColorStop(0, background.from)
   grad.addColorStop(1, background.to)
   ctx.fillStyle = grad
   ctx.fillRect(0, 0, width, height)
 }
 
-function isDarkBackground(background: Background): boolean {
-  const sample = background.kind === 'solid' ? background.color : background.from
-  const hex = sample.replace('#', '')
-  if (hex.length !== 6) return false
-  const r = parseInt(hex.slice(0, 2), 16)
-  const g = parseInt(hex.slice(2, 4), 16)
-  const b = parseInt(hex.slice(4, 6), 16)
-  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
-  return luminance < 0.45
+function roundRectPath(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number,
+): void {
+  const radius = Math.min(r, w / 2, h / 2)
+  ctx.beginPath()
+  ctx.moveTo(x + radius, y)
+  ctx.arcTo(x + w, y, x + w, y + h, radius)
+  ctx.arcTo(x + w, y + h, x, y + h, radius)
+  ctx.arcTo(x, y + h, x, y, radius)
+  ctx.arcTo(x, y, x + w, y, radius)
+  ctx.closePath()
 }
 
 function fitBody(
@@ -233,8 +253,8 @@ function fitBody(
   maxHeight: number,
 ): { fontSize: number; lines: string[]; lineHeight: number } {
   for (let fontSize = MAX_BODY_PX; fontSize >= MIN_BODY_PX; fontSize -= 2) {
-    const lineHeight = Math.round(fontSize * 1.55)
-    ctx.font = `500 ${fontSize}px ${FONT_STACK}`
+    const lineHeight = Math.round(fontSize * 1.45)
+    ctx.font = `400 ${fontSize}px ${FONT_STACK}`
     const lines = wrapLines(ctx, body, maxWidth)
     const total = lines.length * lineHeight
     if (total <= maxHeight) {
@@ -242,8 +262,8 @@ function fitBody(
     }
   }
   const fontSize = MIN_BODY_PX
-  const lineHeight = Math.round(fontSize * 1.55)
-  ctx.font = `500 ${fontSize}px ${FONT_STACK}`
+  const lineHeight = Math.round(fontSize * 1.45)
+  ctx.font = `400 ${fontSize}px ${FONT_STACK}`
   let lines = wrapLines(ctx, body, maxWidth)
   const maxLines = Math.max(1, Math.floor(maxHeight / lineHeight))
   if (lines.length > maxLines) {
@@ -252,6 +272,86 @@ function fitBody(
     lines[maxLines - 1] = `${last.replace(/\s+\S*$/, '').replace(/.$/, '')}…`
   }
   return { fontSize, lines, lineHeight }
+}
+
+function initialsFrom(post: PostText, displayName?: string): string {
+  const raw = (displayName || post.authorDisplayName || post.handle || '用').trim()
+  const chars = [...raw.replace(/^@/, '')]
+  return (chars[0] ?? '用').toUpperCase()
+}
+
+function drawAvatar(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  size: number,
+  image: CanvasImageSource | null,
+  initials: string,
+): void {
+  ctx.save()
+  ctx.beginPath()
+  ctx.arc(x + size / 2, y + size / 2, size / 2, 0, Math.PI * 2)
+  ctx.closePath()
+  ctx.clip()
+  if (image) {
+    ctx.drawImage(image, x, y, size, size)
+  } else {
+    ctx.fillStyle = '#cfd9de'
+    ctx.fillRect(x, y, size, size)
+    ctx.fillStyle = '#0f1419'
+    ctx.font = `600 ${Math.round(size * 0.42)}px ${FONT_STACK}`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(initials, x + size / 2, y + size / 2 + 1)
+  }
+  ctx.restore()
+}
+
+/** Official-style X mark (not the bird). */
+export function drawXLogo(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  size: number,
+  color = '#0f1419',
+): void {
+  const s = size * 0.42
+  ctx.save()
+  ctx.strokeStyle = color
+  ctx.fillStyle = color
+  ctx.lineWidth = Math.max(3, size * 0.16)
+  ctx.lineCap = 'round'
+  ctx.beginPath()
+  ctx.moveTo(cx - s, cy - s)
+  ctx.lineTo(cx + s, cy + s)
+  ctx.moveTo(cx + s, cy - s)
+  ctx.lineTo(cx - s, cy + s)
+  ctx.stroke()
+  ctx.restore()
+}
+
+export async function loadAvatarImage(
+  url: string | undefined,
+  loader?: LoadImageFn,
+): Promise<CanvasImageSource | null> {
+  if (!url) return null
+  if (loader) {
+    try {
+      return await loader(url)
+    } catch {
+      return null
+    }
+  }
+  if (typeof Image !== 'undefined') {
+    return await new Promise((resolve) => {
+      const img = new Image()
+      img.crossOrigin = 'anonymous'
+      img.onload = () => resolve(img)
+      img.onerror = () => resolve(null)
+      img.src = url
+    })
+  }
+  return null
 }
 
 async function canvasToPngBytes(canvas: CardCanvas): Promise<Uint8Array> {
@@ -285,73 +385,120 @@ export function sizeForAspect(aspect: AspectRatio): { width: number; height: num
 }
 
 /**
- * Pure renderer: (PostText, RenderOptions) => PNG bytes.
- * No Chrome APIs. Optional createCanvas for Node tests.
+ * Pure renderer: X-style post card on an outer background.
+ * No Chrome APIs. Optional createCanvas / loadImage for Node tests.
  */
 export async function renderCardPng(
   post: PostText,
   options: RenderOptions,
   createCanvas: CreateCanvas = defaultCreateCanvas,
+  loadImage?: LoadImageFn,
 ): Promise<Uint8Array> {
   const { width, height } = sizeForAspect(options.aspect)
   const canvas = createCanvas(width, height)
   const ctx = canvas.getContext('2d')
   if (!ctx) throw new Error('2d context unavailable')
 
-  // Crisp text on retina-ish exports
   ctx.textBaseline = 'alphabetic'
   ctx.imageSmoothingEnabled = true
 
+  // 1) Outer canvas background
   fillBackground(ctx, width, height, options.background)
-  const dark = isDarkBackground(options.background)
-  const ink = dark ? '#f5f5f4' : '#1c1917'
-  const muted = dark ? '#a8a29e' : '#78716c'
-  const quoteColor = dark ? 'rgba(245,245,244,0.18)' : 'rgba(28,25,23,0.10)'
 
-  const pad = Math.round(width * PAD_RATIO)
-  const contentWidth = width - pad * 2
-  const { body, authorLine, handleLine } = cardVisibleText(post, options)
+  const outerPad = Math.round(width * OUTER_PAD_RATIO)
+  const cardW = width - outerPad * 2
+  const cardPad = Math.round(cardW * 0.055)
+  const { body, displayName, handleLine } = cardVisibleText(post, options)
 
-  const hasFooter = Boolean(authorLine || handleLine)
-  const footerBlock = hasFooter ? AUTHOR_PX + (handleLine ? HANDLE_PX + 14 : 0) + 28 : 0
-  const footerReserve = footerBlock + pad
-  const quoteReserve = Math.round(QUOTE_PX * 0.55)
-  const bodyTopMin = pad + quoteReserve
-  const bodyMaxHeight = height - bodyTopMin - footerReserve
+  const headerH = AVATAR_SIZE
+  const nameGap = 16
+  const textMaxW = cardW - cardPad * 2
+  // Body area budget: leave room for header + paddings inside max outer card
+  const maxCardH = height - outerPad * 2
+  const bodyBudget = maxCardH - cardPad * 2 - headerH - nameGap - 8
+  const fitted = fitBody(ctx, body, textMaxW, Math.max(bodyBudget, MIN_BODY_PX * 2))
+  const bodyBlockH = fitted.lines.length * fitted.lineHeight
+  const cardH = Math.min(
+    maxCardH,
+    cardPad * 2 + headerH + nameGap + bodyBlockH + 8,
+  )
+  const cardX = outerPad
+  const cardY = Math.round((height - cardH) / 2)
 
-  const fitted = fitBody(ctx, body, contentWidth, bodyMaxHeight)
-  const bodyBlockHeight = fitted.lines.length * fitted.lineHeight
+  // Soft shadow
+  ctx.save()
+  ctx.shadowColor = 'rgba(15, 20, 25, 0.22)'
+  ctx.shadowBlur = 36
+  ctx.shadowOffsetY = 12
+  roundRectPath(ctx, cardX, cardY, cardW, cardH, CARD_RADIUS)
+  ctx.fillStyle = '#ffffff'
+  ctx.fill()
+  ctx.restore()
 
-  // Vertically balance body between quote area and footer (not stuck at top with empty bottom).
-  const available = height - pad - footerReserve - quoteReserve
-  const bodyOffset = Math.max(0, Math.round((available - bodyBlockHeight) * 0.35))
-  const bodyTop = bodyTopMin + bodyOffset
+  // White card fill (again without shadow bleed)
+  roundRectPath(ctx, cardX, cardY, cardW, cardH, CARD_RADIUS)
+  ctx.fillStyle = '#ffffff'
+  ctx.fill()
 
-  // Subtle opening quote — sits above body, low contrast
-  ctx.fillStyle = quoteColor
-  ctx.font = `300 ${QUOTE_PX}px Georgia, "Noto Serif", "Times New Roman", serif`
-  ctx.fillText('“', pad - 4, pad + Math.round(QUOTE_PX * 0.78))
+  const avatar = await loadAvatarImage(post.avatarUrl, loadImage)
+  const ax = cardX + cardPad
+  const ay = cardY + cardPad
+  drawAvatar(ctx, ax, ay, AVATAR_SIZE, avatar, initialsFrom(post, displayName))
 
-  ctx.fillStyle = ink
-  ctx.font = `500 ${fitted.fontSize}px ${FONT_STACK}`
+  // X logo top-right
+  drawXLogo(
+    ctx,
+    cardX + cardW - cardPad - X_LOGO_SIZE / 2,
+    ay + AVATAR_SIZE / 2,
+    X_LOGO_SIZE,
+  )
+
+  // Name + handle
+  const textLeft = ax + AVATAR_SIZE + 18
+  const textRightLimit = cardX + cardW - cardPad - X_LOGO_SIZE - 20
+  const nameMaxW = Math.max(40, textRightLimit - textLeft)
+  const nameY = ay + (handleLine && displayName ? 26 : AVATAR_SIZE / 2 + 8)
+
+  if (displayName) {
+    ctx.fillStyle = '#0f1419'
+    ctx.font = `700 28px ${FONT_STACK}`
+    ctx.textAlign = 'left'
+    ctx.textBaseline = 'alphabetic'
+    let name = displayName
+    while (name.length > 1 && ctx.measureText(name).width > nameMaxW) {
+      name = `${name.slice(0, -2)}…`
+    }
+    ctx.fillText(name, textLeft, nameY)
+  }
+
+  if (handleLine) {
+    ctx.fillStyle = '#536471'
+    ctx.font = `400 24px ${FONT_STACK}`
+    const hy = displayName ? nameY + 30 : ay + AVATAR_SIZE / 2 + 8
+    let handle = handleLine
+    while (handle.length > 1 && ctx.measureText(handle).width > nameMaxW) {
+      handle = `${handle.slice(0, -2)}…`
+    }
+    ctx.fillText(handle, textLeft, hy)
+  }
+
+  // If no name and no handle but showAuthor was false / missing — still show handle-like placeholder under avatar row only when both empty
+  if (!displayName && !handleLine) {
+    ctx.fillStyle = '#0f1419'
+    ctx.font = `700 28px ${FONT_STACK}`
+    ctx.fillText('用户', textLeft, ay + AVATAR_SIZE / 2 + 8)
+  }
+
+  // Body
+  const bodyTop = ay + headerH + nameGap
+  ctx.fillStyle = '#0f1419'
+  ctx.font = `400 ${fitted.fontSize}px ${FONT_STACK}`
+  ctx.textAlign = 'left'
+  ctx.textBaseline = 'alphabetic'
   let y = bodyTop + fitted.fontSize
   for (const line of fitted.lines) {
-    ctx.fillText(line, pad, y)
+    ctx.fillText(line, cardX + cardPad, y)
     y += fitted.lineHeight
-  }
-
-  // Author / handle anchored near bottom with breathing room
-  let footerY = height - pad
-  if (handleLine) {
-    ctx.fillStyle = muted
-    ctx.font = `400 ${HANDLE_PX}px ${FONT_STACK}`
-    ctx.fillText(handleLine, pad, footerY)
-    footerY -= HANDLE_PX + 14
-  }
-  if (authorLine) {
-    ctx.fillStyle = muted
-    ctx.font = `500 ${AUTHOR_PX}px ${FONT_STACK}`
-    ctx.fillText(`— ${authorLine}`, pad, footerY)
   }
 
   return canvasToPngBytes(canvas)
