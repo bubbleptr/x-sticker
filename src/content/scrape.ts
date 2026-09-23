@@ -1,4 +1,4 @@
-import type { PostText, ScrapeResult } from '../types'
+import type { PostStats, PostText, ScrapeResult } from '../types'
 
 const STATUS_RE = /\/status\/(\d+)/
 
@@ -48,6 +48,7 @@ function extractAuthor(article: Element): {
   authorDisplayName?: string
   handle?: string
   avatarUrl?: string
+  verified?: boolean
 } {
   const userName = article.querySelector('[data-testid="User-Name"]')
   let authorDisplayName: string | undefined
@@ -78,7 +79,14 @@ function extractAuthor(article: Element): {
     (article.querySelector('img[src*="profile_images"]') as HTMLImageElement | null)
   const avatarUrl = avatarImg?.src || undefined
 
-  return { authorDisplayName, handle, avatarUrl }
+  const verified = Boolean(
+    article.querySelector('[data-testid="icon-verified"]') ||
+      article.querySelector('svg[data-testid="icon-verified"]') ||
+      userName?.querySelector('[aria-label*="Verified" i]') ||
+      userName?.querySelector('[aria-label*="认证" i]'),
+  )
+
+  return { authorDisplayName, handle, avatarUrl, verified }
 }
 
 function extractCreatedAt(article: Element): string | undefined {
@@ -101,6 +109,102 @@ function extractPostUrl(article: Element, pageUrl: string): string {
   if (statusLink?.href) return statusLink.href.split('?')[0]
 
   return pageUrl.split('?')[0]
+}
+
+/** Parse counts from aria-labels like "531 Likes. Like" or "44K views". */
+export function parseCountLabel(label: string | null | undefined): number | undefined {
+  if (!label) return undefined
+  const cleaned = label.replace(/,/g, '')
+  // Prefer glued unit (44K / 1.2M), not the B in "Bookmarks"
+  const glued = cleaned.match(/(\d+(?:\.\d+)?)([KMB万亿])(?=\s|$|[^a-zA-Z])/i)
+  if (glued) {
+    const n = Number(glued[1])
+    if (Number.isNaN(n)) return undefined
+    const unit = glued[2]!.toUpperCase()
+    if (unit === 'K' || unit === '万') return Math.round(n * (unit === '万' ? 10_000 : 1_000))
+    if (unit === 'M' || unit === '亿') return Math.round(n * (unit === '亿' ? 100_000_000 : 1_000_000))
+    if (unit === 'B') return Math.round(n * 1_000_000_000)
+  }
+  const plain = cleaned.match(/(\d+(?:\.\d+)?)/)
+  if (!plain) return undefined
+  const n = Number(plain[1])
+  return Number.isNaN(n) ? undefined : Math.round(n)
+}
+
+function buttonState(
+  article: Element,
+  testIds: string[],
+): { count?: number; active: boolean; label: string } {
+  for (const id of testIds) {
+    const el = article.querySelector(`[data-testid="${id}"]`) as HTMLElement | null
+    if (!el) continue
+    const label =
+      el.getAttribute('aria-label') ||
+      el.querySelector('[aria-label]')?.getAttribute('aria-label') ||
+      ''
+    const count = parseCountLabel(label)
+    return { count, active: true, label }
+  }
+  return { active: false, label: '' }
+}
+
+function extractStats(article: Element): {
+  stats: PostStats
+  liked?: boolean
+  bookmarked?: boolean
+} {
+  const reply = buttonState(article, ['reply'])
+  // inactive retweet vs retweeted
+  const repostInactive = buttonState(article, ['retweet'])
+  const repostActive = buttonState(article, ['unretweet'])
+  const likeInactive = buttonState(article, ['like'])
+  const likeActive = buttonState(article, ['unlike'])
+  const bookmarkInactive = buttonState(article, ['bookmark'])
+  const bookmarkActive = buttonState(article, ['removeBookmark'])
+
+  let views: number | undefined
+  const analytics =
+    (article.querySelector('a[href*="/analytics"]') as HTMLElement | null) ||
+    (article.querySelector('[aria-label*="View" i], [aria-label*="次查看" i], [aria-label*="views" i]') as HTMLElement | null)
+  if (analytics) {
+    views = parseCountLabel(
+      analytics.getAttribute('aria-label') || analytics.textContent || '',
+    )
+  }
+  if (views === undefined) {
+    // Fallback: group with views icon
+    const group = article.querySelector('[role="group"]')
+    if (group) {
+      const labeled = Array.from(group.querySelectorAll('[aria-label]'))
+      for (const el of labeled) {
+        const lab = el.getAttribute('aria-label') ?? ''
+        if (/view|查看|播放/i.test(lab) && !/reply|repost|like|bookmark/i.test(lab)) {
+          views = parseCountLabel(lab)
+          if (views !== undefined) break
+        }
+      }
+    }
+  }
+
+  const stats: PostStats = {
+    ...(reply.count !== undefined ? { replies: reply.count } : {}),
+    ...((repostActive.count ?? repostInactive.count) !== undefined
+      ? { reposts: (repostActive.count ?? repostInactive.count)! }
+      : {}),
+    ...((likeActive.count ?? likeInactive.count) !== undefined
+      ? { likes: (likeActive.count ?? likeInactive.count)! }
+      : {}),
+    ...((bookmarkActive.count ?? bookmarkInactive.count) !== undefined
+      ? { bookmarks: (bookmarkActive.count ?? bookmarkInactive.count)! }
+      : {}),
+    ...(views !== undefined ? { views } : {}),
+  }
+
+  return {
+    stats,
+    liked: likeActive.active || undefined,
+    bookmarked: bookmarkActive.active || undefined,
+  }
 }
 
 function articleMatchesStatus(article: Element, statusId: string): boolean {
@@ -134,9 +238,10 @@ export function scrapePostText(doc: Document = document, pageUrl: string = locat
   const text = extractTweetText(article)
   if (!text) return { ok: false, reason: 'no_text_post' }
 
-  const { authorDisplayName, handle, avatarUrl } = extractAuthor(article)
+  const { authorDisplayName, handle, avatarUrl, verified } = extractAuthor(article)
   const createdAt = extractCreatedAt(article)
   const postUrl = extractPostUrl(article, pageUrl)
+  const { stats, liked, bookmarked } = extractStats(article)
 
   const post: PostText = {
     text,
@@ -145,6 +250,10 @@ export function scrapePostText(doc: Document = document, pageUrl: string = locat
     ...(handle ? { handle } : {}),
     ...(avatarUrl ? { avatarUrl } : {}),
     ...(createdAt ? { createdAt } : {}),
+    ...(verified ? { verified: true } : {}),
+    ...(liked ? { liked: true } : {}),
+    ...(bookmarked ? { bookmarked: true } : {}),
+    ...(Object.keys(stats).length > 0 ? { stats } : {}),
   }
 
   return { ok: true, post }

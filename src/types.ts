@@ -1,3 +1,11 @@
+export type PostStats = {
+  replies?: number
+  reposts?: number
+  likes?: number
+  bookmarks?: number
+  views?: number
+}
+
 export type PostText = {
   text: string
   authorDisplayName?: string
@@ -7,6 +15,10 @@ export type PostText = {
   /** ISO string when available. */
   createdAt?: string
   postUrl: string
+  stats?: PostStats
+  liked?: boolean
+  bookmarked?: boolean
+  verified?: boolean
 }
 
 export type AspectRatio = '3:4' | '9:16'
@@ -22,7 +34,7 @@ export type RenderOptions = {
   showAuthor: boolean
   /** Default '3:4'. */
   aspect: AspectRatio
-  /** Default soft near-white solid. */
+  /** Outer frame behind the white X post card. */
   background: Background
 }
 
@@ -30,7 +42,6 @@ export const DEFAULT_RENDER_OPTIONS: RenderOptions = {
   hideHandle: true,
   showAuthor: true,
   aspect: '3:4',
-  /** Outer frame behind the white X post card. */
   background: { kind: 'gradient', from: '#1d9bf0', to: '#7856ff' },
 }
 
