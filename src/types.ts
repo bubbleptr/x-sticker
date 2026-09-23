@@ -48,7 +48,7 @@ export const DEFAULT_RENDER_OPTIONS: RenderOptions = {
   hideHandle: true,
   showAuthor: true,
   aspect: '3:4',
-  background: { kind: 'solid', color: '#e7e9ea' },
+  background: { kind: 'solid', color: '#ffffff' },
   locale: 'zh-CN',
   showMenu: true,
 }

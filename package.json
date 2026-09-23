@@ -16,9 +16,13 @@
     "@types/chrome": "^0.0.287",
     "@types/node": "^22.10.0",
     "happy-dom": "^20.14.5",
+    "playwright-core": "^1.63.0",
     "tsx": "^4.23.15",
     "typescript": "^5.7.2",
     "vite": "^5.4.11",
     "vitest": "^2.1.8"
+  },
+  "dependencies": {
+    "html-to-image": "^1.11.13"
   }
 }

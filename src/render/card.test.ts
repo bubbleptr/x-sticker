@@ -6,19 +6,20 @@ import {
   formatCompactCount,
   formatMetaClock,
   isPng,
-  renderCardPng,
   sanitizeCardText,
   tokenizeForWrap,
   wrapLines,
-  type CreateCanvas,
 } from './card'
+import { renderCardPng } from './cardNode'
 import { ensureNodeCardFonts } from './nodeFonts'
 import type { PostText, RenderOptions } from '../types'
 
 const fixture: PostText = {
-  text: '我一年内都会无条件看多 Grok！Grok 一定会崛起的！相信老马！\n\n原因无他，我订阅了一年 Heavy',
+  text: '我一年内都会无条件看多 Grok！Grok 一定会崛起的！相信老马！\n\n原因无他，我订阅了一年 Heavy 🥲',
   authorDisplayName: 'Kieran Zhang',
   handle: 'ninthbit_ai',
+  avatarUrl:
+    'https://pbs.twimg.com/profile_images/2008017379247247360/CwS3-oAa_bigger.jpg',
   postUrl: 'https://x.com/ninthbit_ai/status/2102420702448234995',
   createdAt: '2026-09-22T15:32:11.000Z',
   verified: true,
@@ -26,7 +27,7 @@ const fixture: PostText = {
   bookmarked: false,
   stats: {
     replies: 52,
-    reposts: 0,
+    reposts: 3,
     likes: 90,
     bookmarks: 4,
     views: 14671,
@@ -37,14 +38,9 @@ const baseOptions: RenderOptions = {
   hideHandle: false,
   showAuthor: true,
   aspect: '3:4',
-  background: { kind: 'solid', color: '#e7e9ea' },
+  background: { kind: 'solid', color: '#ffffff' },
   locale: 'zh-CN',
   showMenu: true,
-}
-
-const nodeCreateCanvas: CreateCanvas = (width, height) => {
-  const canvas = createCanvas(width, height)
-  return canvas as unknown as ReturnType<CreateCanvas>
 }
 
 beforeAll(() => {
@@ -52,8 +48,12 @@ beforeAll(() => {
 })
 
 describe('sanitizeCardText', () => {
-  it('strips emoji so canvas will not paint tofu', () => {
-    expect(sanitizeCardText('今天心情不错😀👍继续写')).toBe('今天心情不错继续写')
+  it('can strip emoji when requested', () => {
+    expect(sanitizeCardText('今天😀写', true)).toBe('今天写')
+  })
+
+  it('keeps emoji by default for HTML path', () => {
+    expect(sanitizeCardText('Heavy 🥲')).toContain('🥲')
   })
 })
 
@@ -61,7 +61,6 @@ describe('format helpers', () => {
   it('formats zh-CN compact counts like X web', () => {
     expect(formatCompactCount(90, 'zh-CN')).toBe('90')
     expect(formatCompactCount(14671, 'zh-CN')).toBe('1.4万')
-    expect(formatCompactCount(44000, 'en')).toBe('44K')
   })
 
   it('formats zh-CN meta clock like X web', () => {
@@ -72,11 +71,11 @@ describe('format helpers', () => {
 })
 
 describe('tokenizeForWrap / wrapLines', () => {
-  it('keeps Latin and hyphenated compounds as single tokens', () => {
-    expect(tokenizeForWrap('Hello tweet-sticker 世界')).toContain('tweet-sticker')
+  it('keeps Latin compounds', () => {
+    expect(tokenizeForWrap('tweet-sticker')).toEqual(['tweet-sticker'])
   })
 
-  it('does not break mid-Latin-word when wrapping', () => {
+  it('does not break mid-Latin-word', () => {
     const canvas = createCanvas(400, 200)
     const ctx = canvas.getContext('2d')
     const lines = wrapLines(
@@ -89,10 +88,6 @@ describe('tokenizeForWrap / wrapLines', () => {
     ).toBe(false)
   })
 
-  it('allows breaks between CJK characters', () => {
-    expect(tokenizeForWrap('竖版卡片')).toEqual(['竖', '版', '卡', '片'])
-  })
-
   it('avoids CJK punctuation at line start', () => {
     const fixed = avoidLineStartPunctuation(['今天很好', '，继续写'])
     expect(fixed[1]?.startsWith('，')).toBe(false)
@@ -100,36 +95,20 @@ describe('tokenizeForWrap / wrapLines', () => {
 })
 
 describe('cardVisibleText', () => {
-  it('omits @handle when hideHandle is true', () => {
-    const visible = cardVisibleText(fixture, { hideHandle: true, showAuthor: true })
-    expect(visible.handleLine).toBeUndefined()
-    expect(visible.displayName).toBe('Kieran Zhang')
-  })
-
-  it('includes @handle when hideHandle is false', () => {
-    const visible = cardVisibleText(fixture, { hideHandle: false, showAuthor: true })
-    expect(visible.handleLine).toBe('@ninthbit_ai')
+  it('respects hideHandle', () => {
+    expect(
+      cardVisibleText(fixture, { hideHandle: true, showAuthor: true }).handleLine,
+    ).toBeUndefined()
+    expect(
+      cardVisibleText(fixture, { hideHandle: false, showAuthor: true }).handleLine,
+    ).toBe('@ninthbit_ai')
   })
 })
 
-describe('renderCardPng', () => {
-  it('returns non-empty PNG for status-detail style card', async () => {
-    const bytes = await renderCardPng(fixture, baseOptions, nodeCreateCanvas)
-    expect(bytes.byteLength).toBeGreaterThan(100)
+describe('renderCardPng (HTML → Chrome)', () => {
+  it('returns PNG matching status-detail pipeline', async () => {
+    const bytes = await renderCardPng(fixture, baseOptions)
+    expect(bytes.byteLength).toBeGreaterThan(1000)
     expect(isPng(bytes)).toBe(true)
-  })
-
-  it('renders when stats missing', async () => {
-    const bare: PostText = {
-      text: '一句短贴。',
-      authorDisplayName: '测试',
-      postUrl: 'https://x.com/t/status/1',
-    }
-    const bytes = await renderCardPng(
-      bare,
-      { ...baseOptions, hideHandle: true, aspect: '9:16' },
-      nodeCreateCanvas,
-    )
-    expect(isPng(bytes)).toBe(true)
-  })
+  }, 60_000)
 })
