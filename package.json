@@ -1,0 +1,22 @@
+{
+  "name": "katie",
+  "version": "0.1.0",
+  "private": true,
+  "description": "卡贴 (katie) — turn X/Twitter text posts into vertical quote-card PNGs",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@crxjs/vite-plugin": "^2.0.0-beta.28",
+    "@napi-rs/canvas": "^0.1.65",
+    "@types/chrome": "^0.0.287",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2",
+    "vite": "^5.4.11",
+    "vitest": "^2.1.8"
+  }
+}

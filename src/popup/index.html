@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>卡贴 Katie</title>
+    <link rel="stylesheet" href="./popup.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header class="header">
+        <h1 class="brand">卡贴</h1>
+        <p class="tagline">Katie · 文字贴 → 竖版图</p>
+      </header>
+
+      <p id="status" class="status" role="status"></p>
+
+      <section class="controls" aria-label="出图选项">
+        <label class="row">
+          <input type="checkbox" id="hideHandle" checked />
+          <span>隐藏 handle</span>
+        </label>
+        <label class="row">
+          <input type="checkbox" id="showAuthor" checked />
+          <span>显示作者名</span>
+        </label>
+
+        <fieldset class="fieldset">
+          <legend>比例</legend>
+          <label class="chip">
+            <input type="radio" name="aspect" value="3:4" checked />
+            <span>3:4</span>
+          </label>
+          <label class="chip">
+            <input type="radio" name="aspect" value="9:16" />
+            <span>9:16</span>
+          </label>
+        </fieldset>
+
+        <fieldset class="fieldset">
+          <legend>背景</legend>
+          <div id="bgPresets" class="presets"></div>
+        </fieldset>
+      </section>
+
+      <section class="preview-wrap" aria-label="预览">
+        <canvas id="preview" width="270" height="360"></canvas>
+      </section>
+
+      <button type="button" id="download" class="download" disabled>下载 PNG</button>
+    </main>
+    <script type="module" src="./popup.ts"></script>
+  </body>
+</html>
