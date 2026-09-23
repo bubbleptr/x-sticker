@@ -1,58 +1,63 @@
 /**
- * Reference-style X card fixture → PNG.
- * Usage: npx tsx scripts/render-fixture.ts [out.png]
+ * X web status-detail fixture (Kieran reference post) → PNG.
  */
 import { writeFileSync, mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
-import { createCanvas } from '@napi-rs/canvas'
+import { createCanvas, loadImage } from '@napi-rs/canvas'
 import { isPng, renderCardPng, type CreateCanvas } from '../src/render/card'
 import { ensureNodeCardFonts } from '../src/render/nodeFonts'
 import type { PostText, RenderOptions } from '../src/types'
 
 const out =
-  process.argv[2] ?? resolve('/opt/cursor/artifacts/katie_x_card_v4.png')
+  process.argv[2] ?? resolve('/opt/cursor/artifacts/katie_x_card_v5.png')
 
 ensureNodeCardFonts()
 
-function makeFakeAvatar() {
+const avatarUrls = [
+  'https://pbs.twimg.com/profile_images/2008017379247247360/CwS3-oAa_bigger.jpg',
+  'https://pbs.twimg.com/profile_images/2008017379247247360/CwS3-oAa_normal.jpg',
+]
+
+async function loadAvatarOrPlaceholder() {
+  for (const url of avatarUrls) {
+    try {
+      return await loadImage(url)
+    } catch {
+      // try next
+    }
+  }
   const av = createCanvas(128, 128)
   const ctx = av.getContext('2d')
-  ctx.fillStyle = '#111827'
+  ctx.fillStyle = '#cfd9de'
   ctx.beginPath()
   ctx.arc(64, 64, 64, 0, Math.PI * 2)
   ctx.fill()
-  ctx.fillStyle = '#f9fafb'
-  ctx.font = '700 42px "WenQuanYi Micro Hei"'
+  ctx.fillStyle = '#0f1419'
+  ctx.font = '700 48px "WenQuanYi Micro Hei"'
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
-  ctx.fillText('不', 64, 68)
+  ctx.fillText('K', 64, 68)
   return av
 }
 
-const fakeAvatar = makeFakeAvatar()
+const avatar = await loadAvatarOrPlaceholder()
 
 const post: PostText = {
-  text: [
-    '很多人以为效率是把日程填满，其实是把注意力留给真正重要的事。',
-    '',
-    '少做一点，反而更容易把一件事做透。对创作尤其如此——与其每天更新，不如把一个想法写到自己也愿意反复看。',
-    '',
-    '真正的进步，往往发生在你关掉通知之后。',
-  ].join('\n'),
-  authorDisplayName: 'dontbesilent',
-  handle: 'dontbesilent',
-  avatarUrl: 'https://pbs.twimg.com/profile_images/fake/avatar.jpg',
-  postUrl: 'https://x.com/dontbesilent/status/1234567890',
-  createdAt: '2026-02-01T07:41:00.000Z',
+  text: '我一年内都会无条件看多 Grok！Grok 一定会崛起的！相信老马！\n\n原因无他，我订阅了一年 Heavy',
+  authorDisplayName: 'Kieran Zhang',
+  handle: 'ninthbit_ai',
+  avatarUrl: avatarUrls[0],
+  postUrl: 'https://x.com/ninthbit_ai/status/2102420702448234995',
+  createdAt: '2026-09-22T15:32:11.000Z',
   verified: true,
-  liked: true,
-  bookmarked: true,
+  liked: false,
+  bookmarked: false,
   stats: {
-    replies: 40,
-    reposts: 83,
-    likes: 531,
-    bookmarks: 329,
-    views: 44000,
+    replies: 52,
+    reposts: 0,
+    likes: 90,
+    bookmarks: 4,
+    views: 14671,
   },
 }
 
@@ -60,15 +65,17 @@ const options: RenderOptions = {
   hideHandle: false,
   showAuthor: true,
   aspect: '3:4',
-  background: { kind: 'gradient', from: '#64748b', to: '#0f172a' },
+  background: { kind: 'solid', color: '#e7e9ea' },
+  locale: 'zh-CN',
+  showMenu: true,
 }
 
 const nodeCreateCanvas: CreateCanvas = (width, height) =>
   createCanvas(width, height) as unknown as ReturnType<CreateCanvas>
 
-const bytes = await renderCardPng(post, options, nodeCreateCanvas, async () => fakeAvatar)
+const bytes = await renderCardPng(post, options, nodeCreateCanvas, async () => avatar)
 if (!isPng(bytes) || bytes.byteLength < 100) {
-  console.error('render failed: not a valid PNG')
+  console.error('render failed')
   process.exit(1)
 }
 

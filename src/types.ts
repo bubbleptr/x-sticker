@@ -27,6 +27,8 @@ export type Background =
   | { kind: 'solid'; color: string }
   | { kind: 'gradient'; from: string; to: string }
 
+export type MetaLocale = 'zh-CN' | 'en'
+
 export type RenderOptions = {
   /** Default true. */
   hideHandle: boolean
@@ -36,13 +38,19 @@ export type RenderOptions = {
   aspect: AspectRatio
   /** Outer frame behind the white X post card. */
   background: Background
+  /** Meta row locale. Default 'zh-CN' (X web zh). */
+  locale?: MetaLocale
+  /** Top-right ··· menu like status detail. Default true. */
+  showMenu?: boolean
 }
 
 export const DEFAULT_RENDER_OPTIONS: RenderOptions = {
   hideHandle: true,
   showAuthor: true,
   aspect: '3:4',
-  background: { kind: 'gradient', from: '#1d9bf0', to: '#7856ff' },
+  background: { kind: 'solid', color: '#e7e9ea' },
+  locale: 'zh-CN',
+  showMenu: true,
 }
 
 export const ASPECT_SIZE: Record<AspectRatio, { width: number; height: number }> = {

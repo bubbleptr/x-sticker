@@ -20,15 +20,14 @@ export type LoadImageFn = (url: string) => Promise<CanvasImageSource | null>
 export const FONT_STACK =
   '"WenQuanYi Micro Hei", "Noto Sans SC", "Noto Sans CJK SC", "Source Han Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans", "Segoe UI", sans-serif'
 
-const OUTER_PAD_RATIO = 0.09
-const MIN_BODY_PX = 30
-const MAX_BODY_PX = 42
-const CARD_RADIUS = 24
-const AVATAR_SIZE = 56
-const X_LOGO_SIZE = 22
-const META_H = 36
-const ACTION_H = 44
-const DIVIDER_GAP = 18
+const OUTER_PAD_RATIO = 0.08
+const MIN_BODY_PX = 34
+const MAX_BODY_PX = 40
+const CARD_RADIUS = 16
+const AVATAR_SIZE = 48
+const META_H = 34
+const ACTION_H = 40
+const DIVIDER_GAP = 14
 
 const COLOR = {
   ink: '#0f1419',
@@ -213,8 +212,18 @@ export function wrapLines(
   return avoidLineStartPunctuation(lines.length > 0 ? lines : [''])
 }
 
-/** Compact count for meta / action rows (44K, 531, …). */
-export function formatCompactCount(n: number): string {
+/** Compact count: en `44K` / zh-CN `1.4万`. */
+export function formatCompactCount(n: number, locale: 'zh-CN' | 'en' = 'zh-CN'): string {
+  if (locale === 'zh-CN') {
+    if (n < 10_000) return String(Math.round(n))
+    if (n < 100_000_000) {
+      // X-style: 14671 → 1.4万 (truncate to 1 decimal)
+      const truncated = Math.floor((n / 10_000) * 10) / 10
+      return `${String(truncated).replace(/\.0$/, '')}万`
+    }
+    const truncated = Math.floor((n / 100_000_000) * 10) / 10
+    return `${String(truncated).replace(/\.0$/, '')}亿`
+  }
   if (n < 1000) return String(Math.round(n))
   if (n < 10_000) {
     const v = n / 1000
@@ -228,26 +237,55 @@ export function formatCompactCount(n: number): string {
   return `${Math.round(n / 1_000_000_000)}B`
 }
 
-/** `15:41 · 2026/2/1` in Asia/Shanghai. */
-export function formatMetaClock(iso?: string, timeZone = 'Asia/Shanghai'): string {
+/** zh-CN: `下午11:32 · 2026年9月22日` ; en: `11:32 PM · Sep 22, 2026`. */
+export function formatMetaClock(
+  iso?: string,
+  locale: 'zh-CN' | 'en' = 'zh-CN',
+  timeZone = 'Asia/Shanghai',
+): string {
   const d = iso ? new Date(iso) : new Date()
   if (Number.isNaN(d.getTime())) return ''
-  const fmt = new Intl.DateTimeFormat('en-GB', {
+
+  if (locale === 'zh-CN') {
+    const fmt = new Intl.DateTimeFormat('zh-CN', {
+      timeZone,
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+    })
+    const parts = Object.fromEntries(fmt.formatToParts(d).map((p) => [p.type, p.value]))
+    const dayPeriod = parts.dayPeriod ?? ''
+    const hour = parts.hour ?? ''
+    const minute = parts.minute ?? ''
+    const year = parts.year ?? ''
+    const month = parts.month ?? ''
+    const day = parts.day ?? ''
+    // Prefer 上午/下午 + H:MM (X web style)
+    const period = /午|上午|下午|晚上|凌晨|清晨/.test(dayPeriod)
+      ? dayPeriod
+      : Number(hour) >= 12
+        ? '下午'
+        : '上午'
+    let h12 = Number(hour)
+    if (Number.isNaN(h12)) h12 = 0
+    // zh-CN hour12 may already be 1–12
+    return `${period}${h12}:${minute} · ${year}年${month}月${day}日`
+  }
+
+  const fmt = new Intl.DateTimeFormat('en-US', {
     timeZone,
-    hour: '2-digit',
+    hour: 'numeric',
     minute: '2-digit',
-    hour12: false,
+    hour12: true,
     year: 'numeric',
-    month: 'numeric',
+    month: 'short',
     day: 'numeric',
   })
   const parts = Object.fromEntries(fmt.formatToParts(d).map((p) => [p.type, p.value]))
-  const hh = parts.hour ?? '00'
-  const mm = parts.minute ?? '00'
-  const y = parts.year ?? ''
-  const mo = String(Number(parts.month ?? '1'))
-  const day = String(Number(parts.day ?? '1'))
-  return `${hh}:${mm} · ${y}/${mo}/${day}`
+  return `${parts.hour}:${parts.minute} ${parts.dayPeriod} · ${parts.month} ${parts.day}, ${parts.year}`
 }
 
 function fillBackground(
@@ -293,16 +331,16 @@ function fitBody(
   maxHeight: number,
 ): { fontSize: number; lines: string[]; lineHeight: number } {
   for (let fontSize = MAX_BODY_PX; fontSize >= MIN_BODY_PX; fontSize -= 2) {
-    const lineHeight = Math.round(fontSize * 1.5)
+    const lineHeight = Math.round(fontSize * 1.3)
     ctx.font = `400 ${fontSize}px ${FONT_STACK}`
     const lines = wrapLines(ctx, body, maxWidth)
-    const total = lines.length * lineHeight
+    const total = lines.reduce((sum, line) => sum + (line === '' ? lineHeight * 0.85 : lineHeight), 0)
     if (total <= maxHeight) {
       return { fontSize, lines, lineHeight }
     }
   }
   const fontSize = MIN_BODY_PX
-  const lineHeight = Math.round(fontSize * 1.5)
+  const lineHeight = Math.round(fontSize * 1.3)
   ctx.font = `400 ${fontSize}px ${FONT_STACK}`
   let lines = wrapLines(ctx, body, maxWidth)
   const maxLines = Math.max(1, Math.floor(maxHeight / lineHeight))
@@ -365,6 +403,19 @@ export function drawXLogo(
   ctx.moveTo(cx + s, cy - s)
   ctx.lineTo(cx - s, cy + s)
   ctx.stroke()
+  ctx.restore()
+}
+
+function drawMenuDots(ctx: CanvasRenderingContext2D, right: number, cy: number, color = COLOR.muted): void {
+  ctx.save()
+  ctx.fillStyle = color
+  const r = 2.2
+  const gap = 7
+  for (let i = 0; i < 3; i++) {
+    ctx.beginPath()
+    ctx.arc(right - i * gap, cy, r, 0, Math.PI * 2)
+    ctx.fill()
+  }
   ctx.restore()
 }
 
@@ -580,7 +631,7 @@ export function sizeForAspect(aspect: AspectRatio): { width: number; height: num
 }
 
 /**
- * X-style post card on outer background (reference layout).
+ * X web status-detail block on an outer sticker background (light theme).
  */
 export async function renderCardPng(
   post: PostText,
@@ -588,6 +639,8 @@ export async function renderCardPng(
   createCanvas: CreateCanvas = defaultCreateCanvas,
   loadImage?: LoadImageFn,
 ): Promise<Uint8Array> {
+  const locale = options.locale ?? 'zh-CN'
+  const showMenu = options.showMenu !== false
   const { width, height } = sizeForAspect(options.aspect)
   const canvas = createCanvas(width, height)
   const ctx = canvas.getContext('2d')
@@ -600,17 +653,20 @@ export async function renderCardPng(
 
   const outerPad = Math.round(width * OUTER_PAD_RATIO)
   const cardW = width - outerPad * 2
-  const cardPad = Math.round(cardW * 0.055)
+  const cardPad = Math.round(cardW * 0.05)
   const { body, displayName, handleLine } = cardVisibleText(post, options)
 
   const headerH = AVATAR_SIZE
-  const nameGap = 18
-  const footerBlock = DIVIDER_GAP + META_H + DIVIDER_GAP + ACTION_H + 8
+  const nameGap = 16
+  const footerBlock = DIVIDER_GAP + META_H + DIVIDER_GAP + ACTION_H + 4
   const textMaxW = cardW - cardPad * 2
   const maxCardH = height - outerPad * 2
   const bodyBudget = maxCardH - cardPad * 2 - headerH - nameGap - footerBlock
   const fitted = fitBody(ctx, body, textMaxW, Math.max(bodyBudget, MIN_BODY_PX * 3))
-  const bodyBlockH = fitted.lines.length * fitted.lineHeight
+  const bodyBlockH = fitted.lines.reduce(
+    (sum, line) => sum + (line === '' ? fitted.lineHeight * 0.85 : fitted.lineHeight),
+    0,
+  )
   const cardH = Math.min(
     maxCardH,
     cardPad * 2 + headerH + nameGap + bodyBlockH + footerBlock,
@@ -619,9 +675,9 @@ export async function renderCardPng(
   const cardY = Math.round((height - cardH) / 2)
 
   ctx.save()
-  ctx.shadowColor = 'rgba(15, 20, 25, 0.28)'
-  ctx.shadowBlur = 40
-  ctx.shadowOffsetY = 14
+  ctx.shadowColor = 'rgba(15, 20, 25, 0.18)'
+  ctx.shadowBlur = 28
+  ctx.shadowOffsetY = 10
   roundRectPath(ctx, cardX, cardY, cardW, cardH, CARD_RADIUS)
   ctx.fillStyle = COLOR.card
   ctx.fill()
@@ -636,26 +692,21 @@ export async function renderCardPng(
   const ay = cardY + cardPad
   drawAvatar(ctx, ax, ay, AVATAR_SIZE, avatar, initialsFrom(post, displayName))
 
-  // Subtle X mark top-right
-  drawXLogo(
-    ctx,
-    cardX + cardW - cardPad - X_LOGO_SIZE / 2,
-    ay + X_LOGO_SIZE / 2 + 2,
-    X_LOGO_SIZE,
-    '#0f1419',
-  )
+  if (showMenu) {
+    drawMenuDots(ctx, cardX + cardW - cardPad - 2, ay + 12)
+  }
 
-  const textLeft = ax + AVATAR_SIZE + 14
-  const textRightLimit = cardX + cardW - cardPad - X_LOGO_SIZE - 16
-  const nameMaxW = Math.max(40, textRightLimit - textLeft - (post.verified ? 28 : 0))
+  const textLeft = ax + AVATAR_SIZE + 12
+  const textRightLimit = cardX + cardW - cardPad - (showMenu ? 36 : 8)
+  const nameMaxW = Math.max(40, textRightLimit - textLeft - (post.verified ? 26 : 0))
 
   const hasName = Boolean(displayName)
   const hasHandle = Boolean(handleLine)
-  const nameBaseline = hasHandle ? ay + 24 : ay + AVATAR_SIZE / 2 + 8
+  const nameBaseline = hasHandle ? ay + 20 : ay + AVATAR_SIZE / 2 + 7
 
   if (hasName) {
     ctx.fillStyle = COLOR.ink
-    ctx.font = `700 26px ${FONT_STACK}`
+    ctx.font = `700 20px ${FONT_STACK}`
     ctx.textAlign = 'left'
     ctx.textBaseline = 'alphabetic'
     let name = displayName!
@@ -665,16 +716,16 @@ export async function renderCardPng(
     ctx.fillText(name, textLeft, nameBaseline)
     if (post.verified) {
       const nw = ctx.measureText(name).width
-      drawVerifiedBadge(ctx, textLeft + nw + 8, nameBaseline - 20, 22)
+      drawVerifiedBadge(ctx, textLeft + nw + 6, nameBaseline - 16, 18)
     }
   }
 
   if (hasHandle) {
     ctx.fillStyle = COLOR.muted
-    ctx.font = `400 22px ${FONT_STACK}`
-    const hy = hasName ? nameBaseline + 28 : ay + AVATAR_SIZE / 2 + 8
+    ctx.font = `400 15px ${FONT_STACK}`
+    const hy = hasName ? nameBaseline + 22 : ay + AVATAR_SIZE / 2 + 7
     let handle = handleLine!
-    while (handle.length > 1 && ctx.measureText(handle).width > nameMaxW + 28) {
+    while (handle.length > 1 && ctx.measureText(handle).width > nameMaxW + 24) {
       handle = `${handle.slice(0, -2)}…`
     }
     ctx.fillText(handle, textLeft, hy)
@@ -682,60 +733,61 @@ export async function renderCardPng(
 
   if (!hasName && !hasHandle) {
     ctx.fillStyle = COLOR.ink
-    ctx.font = `700 26px ${FONT_STACK}`
-    ctx.fillText('用户', textLeft, ay + AVATAR_SIZE / 2 + 8)
+    ctx.font = `700 20px ${FONT_STACK}`
+    ctx.fillText('用户', textLeft, ay + AVATAR_SIZE / 2 + 7)
   }
 
-  // Body
   const bodyTop = ay + headerH + nameGap
   ctx.fillStyle = COLOR.ink
   ctx.font = `400 ${fitted.fontSize}px ${FONT_STACK}`
   ctx.textAlign = 'left'
   let y = bodyTop + fitted.fontSize
   for (const line of fitted.lines) {
+    if (line === '') {
+      y += fitted.lineHeight * 0.85
+      continue
+    }
     ctx.fillText(line, cardX + cardPad, y)
     y += fitted.lineHeight
   }
 
-  // Meta + actions footer
   let fy = cardY + cardH - cardPad - ACTION_H - DIVIDER_GAP - META_H - DIVIDER_GAP
   drawDivider(ctx, cardX + cardPad, fy, textMaxW)
-  fy += DIVIDER_GAP + 4
+  fy += DIVIDER_GAP + 2
 
-  const clock = formatMetaClock(post.createdAt)
+  const clock = formatMetaClock(post.createdAt, locale)
   const views = post.stats?.views
   ctx.textBaseline = 'alphabetic'
-  ctx.font = `400 22px ${FONT_STACK}`
+  ctx.font = `400 15px ${FONT_STACK}`
   ctx.fillStyle = COLOR.muted
   let metaX = cardX + cardPad
   if (clock) {
-    ctx.fillText(clock, metaX, fy + 20)
+    ctx.fillText(clock, metaX, fy + 18)
     metaX += ctx.measureText(clock).width
   }
   if (views !== undefined) {
     const sep = clock ? ' · ' : ''
     ctx.fillStyle = COLOR.muted
-    ctx.font = `400 22px ${FONT_STACK}`
-    ctx.fillText(sep, metaX, fy + 20)
+    ctx.font = `400 15px ${FONT_STACK}`
+    ctx.fillText(sep, metaX, fy + 18)
     metaX += ctx.measureText(sep).width
-    const viewNum = formatCompactCount(views)
+    const viewNum = formatCompactCount(views, locale)
     ctx.fillStyle = COLOR.ink
-    ctx.font = `700 22px ${FONT_STACK}`
-    ctx.fillText(viewNum, metaX, fy + 20)
+    ctx.font = `700 15px ${FONT_STACK}`
+    ctx.fillText(viewNum, metaX, fy + 18)
     metaX += ctx.measureText(viewNum).width
     ctx.fillStyle = COLOR.muted
-    ctx.font = `400 22px ${FONT_STACK}`
-    ctx.fillText(' Views', metaX, fy + 20)
+    ctx.font = `400 15px ${FONT_STACK}`
+    ctx.fillText(locale === 'zh-CN' ? ' 查看' : ' Views', metaX, fy + 18)
   }
 
   fy += META_H - 4
   drawDivider(ctx, cardX + cardPad, fy, textMaxW)
   fy += DIVIDER_GAP
 
-  // Action row — 5 slots evenly spaced
   const stats = post.stats ?? {}
   const slotW = textMaxW / 5
-  const iconSize = 26
+  const iconSize = 22
   const actions: Array<{
     draw: (ctx: CanvasRenderingContext2D, x: number, y: number, s: number, c: string, fill?: boolean) => void
     count?: number
@@ -779,14 +831,14 @@ export async function renderCardPng(
   actions.forEach((action, i) => {
     const slotX = cardX + cardPad + slotW * i
     const iconX = slotX
-    const iconY = fy + 4
+    const iconY = fy + 2
     action.draw(ctx, iconX, iconY, iconSize, action.color, action.filled)
-    if (action.showCount && action.count !== undefined) {
+    if (action.showCount && action.count !== undefined && action.count > 0) {
       ctx.fillStyle = action.color
-      ctx.font = `400 20px ${FONT_STACK}`
+      ctx.font = `400 13px ${FONT_STACK}`
       ctx.textAlign = 'left'
       ctx.textBaseline = 'middle'
-      ctx.fillText(formatCompactCount(action.count), iconX + iconSize + 8, iconY + iconSize / 2)
+      ctx.fillText(formatCompactCount(action.count, locale), iconX + iconSize + 6, iconY + iconSize / 2)
     }
   })
 

@@ -4,6 +4,11 @@ export const BACKGROUND_PRESETS: Array<{
   background: import('../types').Background
 }> = [
   {
+    id: 'xgray',
+    label: '浅灰',
+    background: { kind: 'solid', color: '#e7e9ea' },
+  },
+  {
     id: 'xblue',
     label: '天蓝渐变',
     background: { kind: 'gradient', from: '#1d9bf0', to: '#0c4a6e' },
@@ -22,10 +27,5 @@ export const BACKGROUND_PRESETS: Array<{
     id: 'dusk',
     label: '暮色渐变',
     background: { kind: 'gradient', from: '#292524', to: '#78716c' },
-  },
-  {
-    id: 'paper',
-    label: '米白',
-    background: { kind: 'solid', color: '#e7e5e4' },
   },
 ]

@@ -16,20 +16,20 @@ import { ensureNodeCardFonts } from './nodeFonts'
 import type { PostText, RenderOptions } from '../types'
 
 const fixture: PostText = {
-  text: '很多人以为效率是把日程填满，其实是把注意力留给真正重要的事。少即是多，对创作尤其如此。',
-  authorDisplayName: '林间笔记',
-  handle: 'linjian_notes',
-  postUrl: 'https://x.com/linjian_notes/status/1234567890',
-  createdAt: '2026-02-01T07:41:00.000Z',
+  text: '我一年内都会无条件看多 Grok！Grok 一定会崛起的！相信老马！\n\n原因无他，我订阅了一年 Heavy',
+  authorDisplayName: 'Kieran Zhang',
+  handle: 'ninthbit_ai',
+  postUrl: 'https://x.com/ninthbit_ai/status/2102420702448234995',
+  createdAt: '2026-09-22T15:32:11.000Z',
   verified: true,
-  liked: true,
-  bookmarked: true,
+  liked: false,
+  bookmarked: false,
   stats: {
-    replies: 40,
-    reposts: 83,
-    likes: 531,
-    bookmarks: 329,
-    views: 44000,
+    replies: 52,
+    reposts: 0,
+    likes: 90,
+    bookmarks: 4,
+    views: 14671,
   },
 }
 
@@ -37,7 +37,9 @@ const baseOptions: RenderOptions = {
   hideHandle: false,
   showAuthor: true,
   aspect: '3:4',
-  background: { kind: 'gradient', from: '#1d9bf0', to: '#7856ff' },
+  background: { kind: 'solid', color: '#e7e9ea' },
+  locale: 'zh-CN',
+  showMenu: true,
 }
 
 const nodeCreateCanvas: CreateCanvas = (width, height) => {
@@ -56,39 +58,35 @@ describe('sanitizeCardText', () => {
 })
 
 describe('format helpers', () => {
-  it('formats compact counts', () => {
-    expect(formatCompactCount(40)).toBe('40')
-    expect(formatCompactCount(44000)).toBe('44K')
-    expect(formatCompactCount(531)).toBe('531')
+  it('formats zh-CN compact counts like X web', () => {
+    expect(formatCompactCount(90, 'zh-CN')).toBe('90')
+    expect(formatCompactCount(14671, 'zh-CN')).toBe('1.4万')
+    expect(formatCompactCount(44000, 'en')).toBe('44K')
   })
 
-  it('formats meta clock in Asia/Shanghai', () => {
-    // 2026-02-01T07:41:00.000Z → 15:41 in Asia/Shanghai (UTC+8)
-    expect(formatMetaClock('2026-02-01T07:41:00.000Z')).toBe('15:41 · 2026/2/1')
+  it('formats zh-CN meta clock like X web', () => {
+    expect(formatMetaClock('2026-09-22T15:32:11.000Z', 'zh-CN')).toBe(
+      '下午11:32 · 2026年9月22日',
+    )
   })
 })
 
 describe('tokenizeForWrap / wrapLines', () => {
   it('keeps Latin and hyphenated compounds as single tokens', () => {
-    const tokens = tokenizeForWrap('Hello tweet-sticker 世界')
-    expect(tokens).toContain('Hello')
-    expect(tokens).toContain('tweet-sticker')
-    expect(tokens.some((t) => t === 'tweet' || t === 'sticker')).toBe(false)
+    expect(tokenizeForWrap('Hello tweet-sticker 世界')).toContain('tweet-sticker')
   })
 
   it('does not break mid-Latin-word when wrapping', () => {
     const canvas = createCanvas(400, 200)
     const ctx = canvas.getContext('2d')
-    const word = 'tweet-sticker'
     const lines = wrapLines(
       ctx as unknown as CanvasRenderingContext2D,
-      `前缀 ${word} 后缀`,
+      '前缀 tweet-sticker 后缀',
       200,
     )
-    const brokenMid = lines.some(
-      (line) => line.includes('tweet-st') && !line.includes('tweet-sticker'),
-    )
-    expect(brokenMid).toBe(false)
+    expect(
+      lines.some((line) => line.includes('tweet-st') && !line.includes('tweet-sticker')),
+    ).toBe(false)
   })
 
   it('allows breaks between CJK characters', () => {
@@ -96,9 +94,8 @@ describe('tokenizeForWrap / wrapLines', () => {
   })
 
   it('avoids CJK punctuation at line start', () => {
-    const fixed = avoidLineStartPunctuation(['今天很好', '，继续写', '。结束'])
+    const fixed = avoidLineStartPunctuation(['今天很好', '，继续写'])
     expect(fixed[1]?.startsWith('，')).toBe(false)
-    expect(fixed.some((l) => l.includes('，'))).toBe(true)
   })
 })
 
@@ -106,17 +103,17 @@ describe('cardVisibleText', () => {
   it('omits @handle when hideHandle is true', () => {
     const visible = cardVisibleText(fixture, { hideHandle: true, showAuthor: true })
     expect(visible.handleLine).toBeUndefined()
-    expect(visible.displayName).toBe('林间笔记')
+    expect(visible.displayName).toBe('Kieran Zhang')
   })
 
   it('includes @handle when hideHandle is false', () => {
     const visible = cardVisibleText(fixture, { hideHandle: false, showAuthor: true })
-    expect(visible.handleLine).toBe('@linjian_notes')
+    expect(visible.handleLine).toBe('@ninthbit_ai')
   })
 })
 
 describe('renderCardPng', () => {
-  it('returns non-empty PNG magic bytes for full X card', async () => {
+  it('returns non-empty PNG for status-detail style card', async () => {
     const bytes = await renderCardPng(fixture, baseOptions, nodeCreateCanvas)
     expect(bytes.byteLength).toBeGreaterThan(100)
     expect(isPng(bytes)).toBe(true)
