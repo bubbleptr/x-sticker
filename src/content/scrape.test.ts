@@ -40,6 +40,59 @@ describe('parseCountLabel', () => {
 })
 
 describe('scrapePostText', () => {
+  it('finds the primary post when another article quotes the requested status first', () => {
+    const doc = mountTweetHtml(`<article data-testid="tweet">
+      <a href="/other/status/111"><time>now</time></a>
+      <div data-testid="tweetText">别人的回复</div>
+      <div role="link"><div data-testid="User-Name">引用作者</div><a href="/me/status/222"><time>quoted</time></a></div>
+    </article><article data-testid="tweet">
+      <a href="/me/status/222"><time>target</time></a>
+      <div data-testid="tweetPhoto"><a href="/me/status/222/photo/1"><img src="https://pbs.twimg.com/media/target?format=jpg"></a></div>
+    </article>`)
+    expect(scrapePostText(doc, 'https://x.com/me/status/222')).toMatchObject({ ok: true, post: {
+      text: '', photos: [{ url: 'https://pbs.twimg.com/media/target?format=jpg&name=orig' }],
+    } })
+  })
+
+  it('accepts photo-only posts without borrowing quoted text in the same article', () => {
+    const doc = mountTweetHtml(`<article data-testid="tweet">
+      <a href="/me/status/222"><time>now</time></a>
+      <div data-testid="tweetPhoto"><a href="/me/status/222/photo/1"><img src="https://pbs.twimg.com/media/only?format=webp&name=small"></a></div>
+      <div role="link" tabindex="0"><div data-testid="User-Name"><span>引用作者</span></div>
+        <div data-testid="tweetText">不应成为封面的引用文字</div>
+        <div data-testid="tweetPhoto"><img src="https://pbs.twimg.com/media/quoted?format=jpg"></div>
+      </div>
+    </article>`)
+    expect(scrapePostText(doc, 'https://x.com/me/status/222')).toMatchObject({ ok: true, post: {
+      text: '', photos: [{ url: 'https://pbs.twimg.com/media/only?format=webp&name=orig' }],
+    } })
+    doc.querySelector('[role="link"]')?.remove()
+    expect(scrapePostText(doc, 'https://x.com/me/status/222')).toMatchObject({ ok: true, post: { text: '' } })
+  })
+
+  it('keeps the primary photos in order at original size without card, quote, emoji or video images', () => {
+    const doc = mountTweetHtml(`<article data-testid="tweet">
+      <a href="/me/status/222"><time>now</time></a>
+      <div data-testid="Tweet-User-Avatar"><img src="https://pbs.twimg.com/profile_images/avatar.jpg"></div>
+      <div data-testid="tweetText">图文<img alt="😀" src="https://pbs.twimg.com/emoji/smile.png"></div>
+      <div data-testid="tweetPhoto"><a href="/me/status/222/photo/1"><img src="https://pbs.twimg.com/media/first?format=jpg&name=small" alt="第一张" width="900" height="1200"></a></div>
+      <div data-testid="tweetPhoto"><a href="/me/status/222/photo/2"><img src="https://pbs.twimg.com/media/second?format=png&name=large"></a></div>
+      <div data-testid="tweetPhoto"><a href="/me/status/222/photo/1"><img src="https://pbs.twimg.com/media/first?format=jpg&name=medium"></a></div>
+      <div data-testid="card.wrapper"><div data-testid="tweetPhoto"><img src="https://pbs.twimg.com/media/link?format=jpg"></div></div>
+      <div data-testid="videoPlayer"><div data-testid="tweetPhoto"><img src="https://pbs.twimg.com/media/poster?format=jpg"></div></div>
+      <div role="link" tabindex="0"><div data-testid="User-Name"><span>引用作者</span><a href="/other/status/999"><time>earlier</time></a></div>
+        <div data-testid="tweetText">引用文字</div><div data-testid="tweetPhoto"><img src="https://pbs.twimg.com/media/quote?format=jpg"></div>
+      </div>
+      <div data-testid="tweetPhoto"><a href="/other/status/999/photo/1"><img src="https://pbs.twimg.com/media/another-quote?format=jpg"></a></div>
+      <div data-testid="tweetPhoto"><img src="https://pbs.twimg.com.evil.test/media/untrusted"></div>
+    </article>`)
+    const result = scrapePostText(doc, 'https://x.com/me/status/222')
+    expect(result).toMatchObject({ ok: true, post: { text: '图文😀', photos: [
+      { url: 'https://pbs.twimg.com/media/first?format=jpg&name=orig', alt: '第一张', width: 900, height: 1200 },
+      { url: 'https://pbs.twimg.com/media/second?format=png&name=orig' },
+    ] } })
+  })
+
   it('preserves bold text through scraping and card rendering without changing the plain caption', () => {
     // Happy DOM omits the browser's bold default styles for semantic tags.
     const doc = mountTweetHtml(`<style>strong, b { font-weight: bolder; }</style><article data-testid="tweet"><div data-testid="tweetText">  普通 <strong>重点 <span>内容</span></strong><br><br><b>第二行<img alt="😀"></b> &lt;script&gt;  </div></article>`)

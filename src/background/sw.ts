@@ -4,8 +4,18 @@ import { createDraftService } from '../drafts/service'
 import { createDraftRepository } from '../drafts/store'
 import type { DraftMessage } from '../drafts/types'
 import { registerXAction } from './action'
+import { createPhotoLoader } from './photo-loader'
+import { createImageDownload } from './image-download'
 
 registerXAction()
+const loadPhoto = createPhotoLoader()
+const downloadImages = createImageDownload((options) => chrome.downloads.download(options))
+
+function assertXSender(sender: chrome.runtime.MessageSender): void {
+  if (sender.id !== chrome.runtime.id || sender.frameId !== 0 || !sender.url) throw new Error('请从 X/Twitter 的卡贴预览操作图片')
+  const origin = new URL(sender.url).origin
+  if (!['https://x.com', 'https://twitter.com'].includes(origin) || (sender.origin && sender.origin !== origin)) throw new Error('图片操作来源无效')
+}
 
 const drafts = createDraftService({
   repository: createDraftRepository(),
@@ -30,6 +40,24 @@ chrome.tabs.onRemoved.addListener((tabId) => { void drafts.tabClosed(tabId).catc
 chrome.runtime.onStartup.addListener(() => { void drafts.browserRestarted().catch(console.error) })
 
 chrome.runtime.onMessage.addListener((message: KatieMessage | DraftMessage, sender, sendResponse) => {
+  if (message?.type === 'LOAD_POST_PHOTO' || message?.type === 'DOWNLOAD_IMAGES') {
+    void (async () => {
+      try {
+        assertXSender(sender)
+        if (message.type === 'LOAD_POST_PHOTO') {
+          const image = await loadPhoto(message.url, message.filenameStem)
+          sendResponse({ ok: true, image })
+        } else {
+          await downloadImages(message.images, message.filename)
+          sendResponse({ type: 'DOWNLOAD_OK' })
+        }
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : '图片操作失败'
+        sendResponse(message.type === 'LOAD_POST_PHOTO' ? { ok: false, error: detail } : { type: 'DOWNLOAD_ERR', message: detail })
+      }
+    })()
+    return true
+  }
   if (typeof message?.type === 'string' && message.type.startsWith('DRAFT_')) {
     void drafts.handle(message as DraftMessage, sender).then(sendResponse)
     return true
