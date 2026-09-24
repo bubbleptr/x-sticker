@@ -45,6 +45,56 @@ function creator(job: DraftJob): chrome.runtime.MessageSender {
 }
 
 describe('persistent draft workflow', () => {
+  it('persists a pre-upload Douyin blocker and clears it when continuing, stopping or receiving a different result', async () => {
+    const context = setup()
+    const [, job] = await create(context)
+    const sender = creator(job)
+    await context.service.handle({ type: 'DRAFT_CLAIM', platform: job.platform }, sender)
+    const pause = () => context.service.handle({ type: 'DRAFT_UPDATE', id: job.id, update: { status: 'needs_attention', step: 'opening', blocker: 'existing_draft', message: '抖音旧稿，本次尚未上传' } }, sender)
+    const inspect = () => context.service.handle({ type: 'DRAFT_INSPECT', platform: job.platform }, sender)
+    expect(await pause()).toEqual({ ok: true })
+    expect(await inspect()).toMatchObject({ ok: true, job: { blocker: 'existing_draft' } })
+    await context.service.handle({ type: 'DRAFT_CONTROL', id: job.id, action: 'resume' }, ui)
+    let current = await inspect()
+    expect(current).toMatchObject({ ok: true, job: { id: job.id, status: 'running', step: 'opening' } })
+    if (!current.ok || !('job' in current)) throw new Error('Missing task')
+    expect(current.job.blocker).toBeUndefined()
+    await context.service.handle({ type: 'DRAFT_UPDATE', id: job.id, update: { status: 'running', step: 'uploading', message: '上传前检查点' } }, sender)
+    expect(await pause()).toEqual({ ok: true })
+    expect(await inspect()).toMatchObject({ ok: true, job: { blocker: 'existing_draft', step: 'opening' } })
+    await context.service.handle({ type: 'DRAFT_CONTROL', id: job.id, action: 'stop' }, ui)
+    current = await inspect()
+    if (!current.ok || !('job' in current)) throw new Error('Missing task')
+    expect(current.job.blocker).toBeUndefined()
+    await pause()
+    await context.service.handle({ type: 'DRAFT_UPDATE', id: job.id, update: { status: 'needs_attention', step: 'opening', message: '账号需要核对' } }, sender)
+    current = await inspect()
+    if (!current.ok || !('job' in current)) throw new Error('Missing task')
+    expect(current.job.blocker).toBeUndefined()
+    expect(context.navigations).toHaveLength(2)
+    expect(context.assets.size).toBe(1)
+  })
+
+  it.each([
+    { platform: 'xiaohongshu', status: 'needs_attention', step: 'opening' },
+    { platform: 'douyin', status: 'running', step: 'opening' },
+    { platform: 'douyin', status: 'needs_attention', step: 'uploading' },
+    { platform: 'douyin', status: 'needs_attention', step: 'opening', hash: imageHash },
+    { platform: 'douyin', status: 'needs_attention', step: 'opening', blocker: 'other' },
+  ])('rejects a blocker that could incorrectly enable uploading again: %j', async ({ platform, status, step, hash, blocker }) => {
+    const context = setup()
+    const jobs = await create(context)
+    const job = jobs.find((candidate) => candidate.platform === platform)!
+    const sender = creator(job)
+    await context.service.handle({ type: 'DRAFT_CLAIM', platform: job.platform }, sender)
+    if (hash) {
+      await context.service.handle({ type: 'DRAFT_UPDATE', id: job.id, update: { status: 'running', step: 'uploading', message: '上传' } }, sender)
+      await context.service.handle({ type: 'DRAFT_UPDATE', id: job.id, update: { status: 'running', step: 'filling', imageHash: hash, message: '已上传' } }, sender)
+    }
+    const result = await context.service.handle({ type: 'DRAFT_UPDATE', id: job.id, update: { status, step, blocker: blocker ?? 'existing_draft', message: '错误的可重试标记' } as DraftUpdate }, sender)
+    expect(result.ok).toBe(false)
+  })
+
   it('routes controls only from X to the bound tab and never resumes a saved or unknown task', async () => {
     const context = setup()
     const [job] = await create(context)

@@ -65,6 +65,7 @@ export function createDraftService({ repository, tabs, extensionId, now = Date.n
     for (const job of jobs) {
       if (tabId !== undefined && job.tabId !== tabId) continue
       delete job.tabId
+      delete job.blocker
       if (job.status !== 'saved') {
         job.status = 'needs_attention'
         job.message = tabId === undefined
@@ -133,6 +134,7 @@ export function createDraftService({ repository, tabs, extensionId, now = Date.n
       if (message.type === 'DRAFT_CLAIM' && job.status !== 'queued') {
         if (job.status === 'running') {
           job.status = 'needs_attention'
+          delete job.blocker
           job.updatedAt = now()
           job.message = '页面已重新加载，请在创作者中心核对当前内容后继续；不会重复上传'
           await repository.saveJobs(jobs)
@@ -143,6 +145,7 @@ export function createDraftService({ repository, tabs, extensionId, now = Date.n
       if (!asset) throw new Error('贴图素材已丢失，请重新生成')
       if (message.type === 'DRAFT_CLAIM') {
         job.status = 'running'
+        delete job.blocker
         job.updatedAt = now()
         await repository.saveJobs(jobs)
       }
@@ -163,6 +166,11 @@ export function createDraftService({ repository, tabs, extensionId, now = Date.n
         other.id !== job.id && other.platform === job.platform && (other.status === 'queued' || other.status === 'running'),
       )) throw new Error(`${DRAFT_TARGETS[job.platform].label}已有处理中的草稿，请先完成或停止现有任务`)
       if (job.status === 'needs_attention' && update.status !== 'needs_attention') throw new Error('草稿已暂停，请返回 X 检查并继续')
+      if (update.blocker !== undefined && (update.blocker !== 'existing_draft' || job.platform !== 'douyin' ||
+          update.status !== 'needs_attention' || update.step !== 'opening' || job.imageHash !== undefined ||
+          update.imageHash !== undefined || !['opening', 'uploading'].includes(job.step))) {
+        throw new Error('旧草稿阻塞状态无效，不能重新上传')
+      }
       if (update.imageHash !== undefined) {
         if (typeof update.imageHash !== 'string' || !/^[a-f0-9]{64}$/.test(update.imageHash) ||
             (job.imageHash !== undefined && update.imageHash !== job.imageHash) ||
@@ -186,6 +194,8 @@ export function createDraftService({ repository, tabs, extensionId, now = Date.n
         job.evidence = { title: evidence.title, body: evidence.body, imageCount: 1, imageHash: evidence.imageHash, storage: evidence.storage, verifiedAt: evidence.verifiedAt }
       }
       if (update.imageHash !== undefined) job.imageHash = update.imageHash
+      if (update.blocker) job.blocker = update.blocker
+      else delete job.blocker
       job.status = update.status
       job.step = update.step
       job.message = update.message
@@ -204,6 +214,7 @@ export function createDraftService({ repository, tabs, extensionId, now = Date.n
       } catch {
         if (job.status !== 'saved') {
           job.status = 'needs_attention'
+          delete job.blocker
           job.message = '原标签页已关闭，请自行到创作者中心检查草稿；不会重复上传'
           job.updatedAt = now()
           await repository.saveJobs(jobs)
@@ -226,12 +237,21 @@ export function createDraftService({ repository, tabs, extensionId, now = Date.n
       if (!job) throw new Error('草稿任务不存在')
       if (job.tabId === undefined) throw new Error('原标签页已关闭，请自行到创作者中心检查草稿')
       if (job.status === 'saved') throw new Error('草稿已经保存，无需继续自动操作')
-      if ((message.action === 'stop' && job.status === 'needs_attention') ||
-          (message.action === 'resume' && (job.status === 'running' || job.status === 'queued'))) return
+      if (message.action === 'stop' && job.status === 'needs_attention') {
+        if (job.blocker) {
+          delete job.blocker
+          job.message = '你已停止自动操作，贴图和当前内容已保留'
+          job.updatedAt = now()
+          await repository.saveJobs(jobs)
+        }
+        return
+      }
+      if (message.action === 'resume' && (job.status === 'running' || job.status === 'queued')) return
       if (message.action === 'resume' && jobs.some((other) => other.id !== job.id && other.platform === job.platform &&
           (other.status === 'queued' || other.status === 'running'))) {
         throw new Error(`${DRAFT_TARGETS[job.platform].label}已有处理中的草稿，请先完成或停止现有任务`)
       }
+      delete job.blocker
       job.status = message.action === 'stop' ? 'needs_attention' : 'running'
       job.message = message.action === 'stop' ? '你已停止自动操作，贴图和当前内容已保留' : '正在检查并继续原草稿'
       job.updatedAt = now()
@@ -254,6 +274,7 @@ export function createDraftService({ repository, tabs, extensionId, now = Date.n
         const job = jobs.find((candidate) => candidate.id === message.id)
         if (!job || job.status === 'saved') return
         job.status = 'needs_attention'
+        delete job.blocker
         job.message = message.action === 'stop' ? '已暂停任务；原标签页没有响应，请手动核对当前内容' : failure
         job.updatedAt = now()
         await repository.saveJobs(jobs)

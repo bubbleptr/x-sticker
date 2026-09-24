@@ -41,6 +41,61 @@ function setup(overrides: Partial<PlatformAdapter> = {}) {
 afterEach(() => { document.body.innerHTML = ''; vi.restoreAllMocks(); vi.mocked(fingerprintImage).mockResolvedValue('a'.repeat(64)) })
 
 describe('draft runner', () => {
+  it.each(['before_upload', 'while_recording_upload'] as const)('preserves an existing Douyin draft at %s and retries the same task once after it is handled', async (arrival) => {
+    const context = setup()
+    const input = document.createElement('input')
+    input.type = 'file'
+    document.body.append(input)
+    let existing = arrival === 'before_upload'
+    let revealAfterCheckpoint = arrival === 'while_recording_upload'
+    let uploaded = false
+    const editor = context.adapter.getEditor()
+    context.adapter.getUploadInput = () => input
+    context.adapter.getEditor = () => uploaded ? editor : null
+    context.adapter.hasExistingDraft = () => existing
+    const upload = vi.fn(() => { uploaded = true })
+    input.addEventListener('change', upload)
+    const report = async (update: DraftUpdate) => {
+      await context.report(update)
+      if (update.status === 'running' && update.step === 'uploading' && revealAfterCheckpoint) {
+        existing = true
+        revealAfterCheckpoint = false
+      }
+    }
+    const original: DraftJob = { ...job, platform: 'douyin', step: 'opening', imageHash: undefined }
+    const blocked = await runDraft(original, [1, 2, 3], context.adapter, report, { timeout: 20 })
+    expect(blocked).toMatchObject({ status: 'needs_attention', step: 'opening', blocker: 'existing_draft' })
+    expect(blocked.message).toContain('抖音')
+    expect(blocked.message).toContain('尚未上传')
+    expect(input.files?.length).toBe(0)
+    expect(upload).not.toHaveBeenCalled()
+    expect(context.adapter.saveDraft).not.toHaveBeenCalled()
+    const paused = { ...original, ...blocked }
+    const stillBlocked = await runDraft(paused, [1, 2, 3], context.adapter, report, { timeout: 20 })
+    expect(stillBlocked).toMatchObject({ status: 'needs_attention', step: 'opening', blocker: 'existing_draft' })
+    expect(upload).not.toHaveBeenCalled()
+    existing = false
+    const retried = await runDraft({ ...paused, ...stillBlocked }, [1, 2, 3], context.adapter, report, { timeout: 20 })
+    expect(retried.status).toBe('saved')
+    expect(retried.blocker).toBeUndefined()
+    expect(upload).toHaveBeenCalledOnce()
+    expect(context.adapter.saveDraft).toHaveBeenCalledOnce()
+  })
+
+  it('does not mark an interrupted upload as retryable when an old Douyin draft appears after dispatch', async () => {
+    const context = setup({ getEditor: () => null, hasExistingDraft: () => true })
+    const input = document.createElement('input')
+    input.type = 'file'
+    document.body.append(input)
+    context.adapter.getUploadInput = () => input
+    const upload = vi.fn()
+    input.addEventListener('change', upload)
+    const result = await runDraft({ ...job, platform: 'douyin', step: 'uploading', imageHash: undefined }, [1], context.adapter, context.report, { timeout: 5 })
+    expect(result).toMatchObject({ status: 'needs_attention', step: 'uploading' })
+    expect(result.blocker).toBeUndefined()
+    expect(upload).not.toHaveBeenCalled()
+  })
+
   it('fills one image, saves, reopens and only then reports verified evidence', async () => {
     const context = setup()
     const result = await runDraft(job, [1, 2, 3], context.adapter, context.report, { timeout: 20, now: () => 100 })

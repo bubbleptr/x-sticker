@@ -322,4 +322,33 @@ describe('draft composer', () => {
     expect(progress.querySelector('[data-job-id="lost-job"] .draft-control')).toBeNull()
   })
 
+  it('keeps an old Douyin draft warning in X and retries the original task without creating or discarding anything', async () => {
+    const blocked: DraftJob = { ...job, platform: 'douyin', step: 'opening', blocker: 'existing_draft', message: '抖音有旧草稿未发布，本次贴图尚未上传。' }
+    let finish!: (response: DraftResponse) => void
+    sendMessage.mockImplementation(async (message) => message.type === 'DRAFT_CONTROL'
+      ? new Promise((resolve) => { finish = resolve })
+      : { ok: true, jobs: [blocked] })
+    composer.showProgress()
+    await vi.waitFor(() => expect(progress.querySelector('.draft-progress-heading')?.textContent).toBe('抖音有旧草稿未发布'))
+    const retry = progress.querySelector<HTMLButtonElement>('.draft-control')!
+    expect(retry.textContent).toBe('重新同步到抖音')
+    expect(progress.textContent).toContain('本次贴图尚未上传')
+    retry.click()
+    retry.click()
+    expect(sendMessage.mock.calls.filter(([message]) => message.type === 'DRAFT_CONTROL')).toEqual([[{ type: 'DRAFT_CONTROL', id: blocked.id, action: 'resume' }]])
+    expect(progress.querySelector<HTMLButtonElement>('.draft-control')?.disabled).toBe(true)
+    expect(progress.textContent).toContain('正在重新同步')
+    finish({ ok: true })
+    await vi.waitFor(() => expect(progress.querySelector<HTMLButtonElement>('.draft-control')?.disabled).toBe(false))
+    expect(progress.querySelector('.draft-progress-heading')?.textContent).toBe('抖音有旧草稿未发布')
+    expect(progress.querySelector('.draft-control-feedback')).toBeNull()
+    expect(sendMessage.mock.calls.some(([message]) => message.type === 'DRAFT_CREATE')).toBe(false)
+    expect(container.querySelector('.draft-job-list')).toBeNull()
+    const running: DraftJob = { ...blocked, blocker: undefined, status: 'running', step: 'uploading', updatedAt: 20 }
+    sendMessage.mockResolvedValue({ ok: true, jobs: [running] })
+    for (const listener of listeners) listener({}, 'local')
+    await vi.waitFor(() => expect(progress.querySelector('.draft-progress-heading')?.textContent).toBe('正在同步到草稿'))
+    expect(progress.querySelector('.draft-control')?.textContent).toBe('停止自动操作')
+  })
+
 })

@@ -37,6 +37,7 @@ export interface DraftJob {
   account?: string
   evidence?: DraftEvidence
   imageHash?: string
+  blocker?: 'existing_draft'
 }
 
 export interface DraftUpdate {
@@ -46,6 +47,7 @@ export interface DraftUpdate {
   account?: string
   evidence?: DraftEvidence
   imageHash?: string
+  blocker?: 'existing_draft'
 }
 
 export type DraftRunControlMessage = { type: 'DRAFT_RUN_CONTROL'; id: string; action: 'stop' | 'resume' }

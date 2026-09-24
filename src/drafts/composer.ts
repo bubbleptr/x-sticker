@@ -75,6 +75,15 @@ const STEP_LABELS: Record<DraftJob['step'], string> = {
   opening: '正在打开创作者中心', uploading: '正在上传贴图', filling: '正在填写文案', saving: '正在保存草稿', verifying: '正在重新打开核对',
 }
 
+function hasOldDouyinDraft(job: DraftJob): boolean {
+  return job.platform === 'douyin' && job.status === 'needs_attention' && job.blocker === 'existing_draft'
+}
+
+function controlLabel(job: DraftJob, action: 'stop' | 'resume'): string {
+  if (action === 'stop') return '停止自动操作'
+  return hasOldDouyinDraft(job) ? '重新同步到抖音' : '检查并继续'
+}
+
 let composerSequence = 0
 
 export function createDraftComposer(container: HTMLElement, options: DraftComposerOptions) {
@@ -144,7 +153,7 @@ export function createDraftComposer(container: HTMLElement, options: DraftCompos
   let creationError = ''
   let currentJobIds: string[] | null = null
   const jobsById = new Map<string, DraftJob>()
-  const controls = new Map<string, { action: 'stop' | 'resume'; pending: boolean; error: string }>()
+  const controls = new Map<string, { label: string; pending: boolean; error: string }>()
 
   function setError(element: HTMLElement, error: string): void {
     element.textContent = error
@@ -211,13 +220,14 @@ export function createDraftComposer(container: HTMLElement, options: DraftCompos
   async function requestControl(id: string, action: 'stop' | 'resume'): Promise<void> {
     const job = jobsById.get(id)
     if (destroyed || controls.get(id)?.pending || !job || controlAction(job) !== action) return
-    const state = { action, pending: true, error: '' }
+    const state = { label: controlLabel(job, action), pending: true, error: '' }
     controls.set(id, state)
     renderJobs()
     try {
       const response = await send({ type: 'DRAFT_CONTROL', id, action })
       if (destroyed) return
       if (!response.ok) throw new Error(response.error)
+      controls.delete(id)
       if ('jobs' in response) mergeJobs(response.jobs)
       void refreshJobs()
     } catch (error) {
@@ -246,6 +256,9 @@ export function createDraftComposer(container: HTMLElement, options: DraftCompos
     } else if (jobs.every((job) => job.status === 'saved')) {
       heading.textContent = '草稿已核对'
       description.textContent = '图片与文案已重新打开核对。你可以前往创作者中心检查并手动发布。'
+    } else if (jobs.some(hasOldDouyinDraft)) {
+      heading.textContent = '抖音有旧草稿未发布'
+      description.textContent = '本次贴图和文案已保留。处理旧草稿后，在这里重新同步到抖音。'
     } else if (jobs.some((job) => job.status === 'needs_attention')) {
       heading.textContent = '需要你接手'
       description.textContent = '有平台需要人工处理，其他平台会继续同步。打开对应后台查看详情。'
@@ -267,7 +280,7 @@ export function createDraftComposer(container: HTMLElement, options: DraftCompos
       platform.textContent = DRAFT_TARGETS[job.platform].label
       const state = document.createElement('span')
       state.className = 'draft-job-state'
-      state.textContent = job.status === 'running' ? STEP_LABELS[job.step] : STATUS_LABELS[job.status]
+      state.textContent = hasOldDouyinDraft(job) ? '旧草稿未发布' : job.status === 'running' ? STEP_LABELS[job.step] : STATUS_LABELS[job.status]
       jobHeading.append(platform, state)
       const title = document.createElement('p')
       title.className = 'draft-job-title'
@@ -286,7 +299,7 @@ export function createDraftComposer(container: HTMLElement, options: DraftCompos
       actions.className = 'draft-job-actions'
       const open = document.createElement('button')
       open.type = 'button'
-      open.textContent = job.status === 'needs_attention' ? '打开后台接手' : '打开后台'
+      open.textContent = hasOldDouyinDraft(job) ? '查看抖音旧草稿' : job.status === 'needs_attention' ? '打开后台接手' : '打开后台'
       open.addEventListener('click', async () => {
         if (open.disabled) return
         open.disabled = true
@@ -308,18 +321,16 @@ export function createDraftComposer(container: HTMLElement, options: DraftCompos
         control.className = 'draft-control'
         control.disabled = Boolean(controlState?.pending)
         control.textContent = controlState?.pending
-          ? controlState.action === 'stop' ? '正在停止…' : '正在请求继续…'
-          : action === 'stop' ? '停止自动操作' : '检查并继续'
+          ? `正在${controlState.label}…`
+          : controlLabel(job, action)
         control.addEventListener('click', () => { void requestControl(job.id, action) })
         actions.append(control)
       }
       item.append(actions)
       if (controlState && job.status !== 'saved') {
         const text = controlState.pending
-          ? controlState.action === 'stop' ? '正在停止自动操作…' : '正在请求检查并继续…'
-          : controlState.error || (action === controlState.action
-            ? controlState.action === 'stop' ? '已请求停止，等待后台确认。' : '已请求检查并继续，等待后台更新。'
-            : '')
+          ? `正在${controlState.label}…`
+          : controlState.error
         if (text) {
           const feedback = document.createElement('p')
           feedback.className = 'draft-control-feedback'

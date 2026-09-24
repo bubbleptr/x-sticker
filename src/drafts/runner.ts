@@ -71,6 +71,17 @@ export async function runDraft(
   let step = job.step
   let account = job.account
   let imageHash = job.imageHash
+  let blocker: DraftUpdate['blocker']
+  const checkExistingDraft = () => {
+    if (!adapter.hasExistingDraft()) return
+    if (job.platform === 'douyin' && job.step === 'opening' && !imageHash) {
+      // This check only runs before assigning the FileList, including after its checkpoint is persisted.
+      step = 'opening'
+      blocker = 'existing_draft'
+      throw new Error('抖音有上次未发布的图文，本次贴图尚未上传。请先处理旧稿，再返回 X 重新同步到抖音。')
+    }
+    throw new Error('页面已有未发布内容，已暂停以保留原草稿')
+  }
   const checkPage = () => {
     signal.throwIfAborted()
     if (step !== 'opening') adapter.dismissGuide()
@@ -105,14 +116,16 @@ export async function runDraft(
     await publish({ status: 'running', step, account, message: '正在检查创作者中心' })
     if (step === 'opening') {
       const input = await waitForValue(() => {
-        if (adapter.hasExistingDraft() || adapter.getEditor()) throw new Error('页面已有未发布内容，已暂停以保留原草稿')
+        checkExistingDraft()
+        if (adapter.getEditor()) throw new Error('页面已有未发布内容，已暂停以保留原草稿')
         return adapter.getUploadInput()
       }, '图片上传控件', options.timeout, signal)
       checkAccount(job.platform === 'xiaohongshu')
       if (input.files?.length) throw new Error('上传控件已有图片，请手动接手')
       await publish({ status: 'running', step: 'uploading', account, message: '正在上传贴图' })
       checkAccount(job.platform === 'xiaohongshu')
-      if (adapter.hasExistingDraft() || adapter.getEditor() || adapter.getUploadInput() !== input || input.files?.length) {
+      checkExistingDraft()
+      if (adapter.getEditor() || adapter.getUploadInput() !== input || input.files?.length) {
         throw new Error('上传页面内容已经变化，已暂停以保留当前内容')
       }
       const transfer = new DataTransfer()
@@ -188,7 +201,7 @@ export async function runDraft(
       evidence: { title: job.title, body: job.body, imageCount: 1, imageHash, storage: adapter.storage, verifiedAt: (options.now ?? Date.now)() },
     })
   } catch (error) {
-    return await publish({ status: 'needs_attention', step, account, message: error instanceof Error ? error.message : '自动操作已暂停，请手动接手' })
+    return await publish({ status: 'needs_attention', step, account, blocker, message: error instanceof Error ? error.message : '自动操作已暂停，请手动接手' })
   } finally {
     pageChanges.disconnect()
     inputEvents.forEach((type) => root.removeEventListener(type, manualInput, true))
