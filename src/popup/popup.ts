@@ -7,6 +7,7 @@ import {
   type ScrapeResult,
 } from '../types'
 import { renderCardPng } from '../render/card'
+import { createPreviewController } from '../render/preview'
 import { BACKGROUND_PRESETS } from './presets'
 import { createDraftComposer } from '../drafts/composer'
 
@@ -16,13 +17,24 @@ const showAuthorEl = document.getElementById('showAuthor') as HTMLInputElement
 const downloadBtn = document.getElementById('download') as HTMLButtonElement
 const preview = document.getElementById('preview') as HTMLCanvasElement
 const bgPresetsEl = document.getElementById('bgPresets') as HTMLDivElement
+const workspace = document.getElementById('workspace')!
+const progressScreen = document.getElementById('draftProgress')!
+const zoomFit = document.getElementById('zoomFit') as HTMLButtonElement
+const zoomActual = document.getElementById('zoomActual') as HTMLButtonElement
+const previewController = createPreviewController(preview, document.getElementById('previewViewport')!)
 
 let post: PostText | null = null
 let pngBytes: Uint8Array | null = null
 let selectedBgId = BACKGROUND_PRESETS[0]!.id
 let renderToken = 0
 const filename = `x-sticker-${Date.now()}.png`
-const composer = createDraftComposer(document.getElementById('draftComposer')!)
+const composer = createDraftComposer(document.getElementById('draftComposer')!, {
+  progressContainer: progressScreen,
+  onViewChange(view) {
+    workspace.hidden = view !== 'editor'
+    progressScreen.hidden = view !== 'progress'
+  },
+})
 
 function syncDraftSnapshot(): void {
   composer.setSnapshot(post ? { post, bytes: pngBytes, filename } : null)
@@ -47,27 +59,6 @@ function currentOptions(): RenderOptions {
   }
 }
 
-function paintPreview(bytes: Uint8Array): void {
-  const ab = new ArrayBuffer(bytes.byteLength)
-  new Uint8Array(ab).set(bytes)
-  const blob = new Blob([ab], { type: 'image/png' })
-  const url = URL.createObjectURL(blob)
-  const img = new Image()
-  img.onload = () => {
-    const maxW = 480
-    const scale = maxW / img.width
-    preview.width = maxW
-    preview.height = Math.round(img.height * scale)
-    const ctx = preview.getContext('2d')
-    if (!ctx) return
-    ctx.clearRect(0, 0, preview.width, preview.height)
-    ctx.drawImage(img, 0, 0, preview.width, preview.height)
-    URL.revokeObjectURL(url)
-  }
-  img.onerror = () => URL.revokeObjectURL(url)
-  img.src = url
-}
-
 async function refreshPreview(): Promise<void> {
   pngBytes = null
   downloadBtn.disabled = true
@@ -83,7 +74,7 @@ async function refreshPreview(): Promise<void> {
     if (token !== renderToken) return
     pngBytes = bytes
     syncDraftSnapshot()
-    paintPreview(bytes)
+    previewController.paint(bytes)
     downloadBtn.disabled = false
     setStatus('预览就绪')
   } catch (err) {
@@ -185,9 +176,20 @@ function bindControls(): void {
     input.addEventListener('change', () => void refreshPreview())
   }
   downloadBtn.addEventListener('click', () => void downloadPng())
+  document.getElementById('showProgress')!.addEventListener('click', () => composer.showProgress())
+  for (const [button, mode] of [[zoomFit, 'fit'], [zoomActual, 'actual']] as const) {
+    button.addEventListener('click', () => {
+      previewController.setZoom(mode)
+      zoomFit.setAttribute('aria-pressed', String(mode === 'fit'))
+      zoomActual.setAttribute('aria-pressed', String(mode === 'actual'))
+    })
+  }
 }
 
 bindPresets()
 bindControls()
-window.addEventListener('pagehide', () => composer.destroy(), { once: true })
+window.addEventListener('pagehide', () => {
+  composer.destroy()
+  previewController.destroy()
+}, { once: true })
 void scrapeActiveTab()

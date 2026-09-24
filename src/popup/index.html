@@ -9,47 +9,65 @@
   <body>
     <main class="app">
       <header class="header">
-        <h1 class="brand">X Sticker</h1>
-        <p class="tagline">文字贴 → 竖版图</p>
+        <div class="heading">
+          <h1 class="brand">X Sticker</h1>
+          <p class="tagline">预览你的贴图</p>
+        </div>
+        <button type="button" id="showProgress" class="quiet-button">同步记录</button>
       </header>
 
-      <div class="workspace">
+      <div id="workspace" class="workspace">
         <section class="preview-wrap" aria-label="预览">
-          <canvas id="preview" width="360" height="480"></canvas>
+          <div class="preview-toolbar">
+            <span>贴图预览</span>
+            <div class="zoom-controls" role="group" aria-label="预览缩放">
+              <button type="button" id="zoomFit" aria-pressed="true">适应窗口</button>
+              <button type="button" id="zoomActual" aria-pressed="false">100%</button>
+            </div>
+          </div>
+          <div id="previewViewport" class="preview-viewport">
+            <canvas id="preview" width="1080" height="1440" aria-label="贴图效果"></canvas>
+          </div>
+          <p id="status" class="status" role="status"></p>
         </section>
 
         <aside class="inspector" aria-label="出图选项">
-          <p id="status" class="status" role="status"></p>
-          <label class="row">
-            <input type="checkbox" id="hideHandle" checked />
-            <span>隐藏 handle</span>
-          </label>
-          <label class="row">
-            <input type="checkbox" id="showAuthor" checked />
-            <span>显示作者名</span>
-          </label>
+          <section class="appearance" aria-label="贴图样式">
+            <h2 class="section-title">贴图样式</h2>
+            <div class="author-options">
+              <label class="row">
+                <input type="checkbox" id="hideHandle" checked />
+                <span>隐藏账号</span>
+              </label>
+              <label class="row">
+                <input type="checkbox" id="showAuthor" checked />
+                <span>显示作者</span>
+              </label>
+            </div>
 
-          <fieldset class="fieldset">
-            <legend>比例</legend>
-            <label class="chip">
-              <input type="radio" name="aspect" value="3:4" checked />
-              <span>3:4</span>
-            </label>
-            <label class="chip">
-              <input type="radio" name="aspect" value="9:16" />
-              <span>9:16</span>
-            </label>
-          </fieldset>
+            <fieldset class="fieldset">
+              <legend>比例</legend>
+              <label class="chip">
+                <input type="radio" name="aspect" value="3:4" checked />
+                <span>3:4</span>
+              </label>
+              <label class="chip">
+                <input type="radio" name="aspect" value="9:16" />
+                <span>9:16</span>
+              </label>
+            </fieldset>
 
-          <fieldset class="fieldset">
-            <legend>背景</legend>
-            <div id="bgPresets" class="presets"></div>
-          </fieldset>
+            <fieldset class="fieldset">
+              <legend>背景</legend>
+              <div id="bgPresets" class="presets"></div>
+            </fieldset>
+          </section>
 
-          <button type="button" id="download" class="download" disabled>下载 PNG</button>
+          <section id="draftComposer"></section>
+          <button type="button" id="download" class="quiet-button download" disabled>下载 PNG</button>
         </aside>
       </div>
-      <section id="draftComposer"></section>
+      <section id="draftProgress" class="progress-screen" aria-label="同步进度" hidden></section>
     </main>
     <script type="module" src="./popup.ts"></script>
   </body>

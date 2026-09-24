@@ -17,6 +17,8 @@ let listeners: Set<(changes: Record<string, unknown>, area: string) => void>
 let sendMessage: ReturnType<typeof vi.fn<(message: DraftMessage) => Promise<DraftResponse>>>
 let composer: ReturnType<typeof createDraftComposer>
 let container: HTMLDivElement
+let progress: HTMLDivElement
+let onViewChange: ReturnType<typeof vi.fn>
 
 function submit(): void {
   container.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
@@ -34,8 +36,10 @@ beforeEach(() => {
     storage: { onChanged: { addListener: (listener: typeof listeners extends Set<infer T> ? T : never) => listeners.add(listener), removeListener: (listener: typeof listeners extends Set<infer T> ? T : never) => listeners.delete(listener) } },
   })
   container = document.createElement('div')
-  document.body.append(container)
-  composer = createDraftComposer(container)
+  progress = document.createElement('div')
+  document.body.append(container, progress)
+  onViewChange = vi.fn()
+  composer = createDraftComposer(container, { progressContainer: progress, onViewChange })
 })
 
 afterEach(() => {
@@ -135,22 +139,133 @@ describe('draft composer', () => {
       : { ok: true, jobs: [] })
     composer.setSnapshot(snapshot)
     submit()
-    await vi.waitFor(() => expect(container.querySelector('[role="alert"]')?.textContent).toContain('浏览器没有授权访问抖音创作者中心'))
+    await vi.waitFor(() => expect(progress.querySelector('.draft-submit-error')?.textContent).toContain('浏览器没有授权访问抖音创作者中心'))
     expect(button().disabled).toBe(false)
-    expect(container.textContent).not.toContain('草稿已保存')
+    expect(progress.textContent).not.toContain('草稿已保存')
+    expect(progress.hidden).toBe(false)
+    expect(container.hidden).toBe(true)
+    progress.querySelector<HTMLButtonElement>('.draft-back')!.click()
+    expect(container.hidden).toBe(false)
+    expect(onViewChange).toHaveBeenLastCalledWith('editor')
   })
 
   it('restores persisted work, refreshes on storage changes and opens the job for handoff', async () => {
     sendMessage.mockImplementation(async (message) => message.type === 'DRAFT_LIST' ? { ok: true, jobs: [job] } : { ok: true })
     for (const listener of listeners) listener({}, 'local')
-    await vi.waitFor(() => expect(container.textContent).toContain(job.message))
-    const open = Array.from(container.querySelectorAll('button')).find((item) => item.textContent === '打开后台接手')!
+    await vi.waitFor(() => expect(progress.textContent).toContain(job.message))
+    const open = Array.from(progress.querySelectorAll('button')).find((item) => item.textContent === '打开后台接手')!
     open.click()
     await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledWith({ type: 'DRAFT_OPEN', id: job.id }))
-    sendMessage.mockImplementation(async () => ({ ok: true, jobs: [{ ...job, status: 'saved', message: '已重新打开核对', evidence: { title: job.title, body: job.body, imageCount: 1, storage: 'browser', verifiedAt: 3 } }] }))
+    sendMessage.mockImplementation(async () => ({ ok: true, jobs: [{ ...job, status: 'saved', message: '已重新打开核对', evidence: { title: job.title, body: job.body, imageCount: 1, imageHash: 'test-image-hash', storage: 'browser', verifiedAt: 3 } }] }))
     for (const listener of listeners) listener({}, 'local')
-    await vi.waitFor(() => expect(container.textContent).toContain('此浏览器草稿箱'))
+    await vi.waitFor(() => expect(progress.textContent).toContain('此浏览器草稿箱'))
     composer.destroy()
     expect(listeners.size).toBe(0)
   })
+
+  it('keeps task progress out of the editor and shows only the current submission until history is opened', async () => {
+    const historical = { ...job, id: 'old-job', title: '以前的草稿' }
+    sendMessage.mockImplementation(async (message) => message.type === 'DRAFT_CREATE'
+      ? { ok: true, jobs: [job] }
+      : { ok: true, jobs: [historical, job] })
+    for (const listener of listeners) listener({}, 'local')
+    await vi.waitFor(() => expect(progress.textContent).toContain('以前的草稿'))
+    expect(container.querySelector('.draft-job-list')).toBeNull()
+    expect(progress.hidden).toBe(true)
+    composer.setSnapshot(snapshot)
+    submit()
+    expect(onViewChange).toHaveBeenLastCalledWith('progress')
+    expect(container.hidden).toBe(true)
+    expect(progress.hidden).toBe(false)
+    await vi.waitFor(() => expect(progress.textContent).toContain(job.message))
+    expect(progress.textContent).not.toContain('以前的草稿')
+    progress.querySelector<HTMLButtonElement>('.draft-back')!.click()
+    composer.showProgress()
+    expect(progress.textContent).toContain('以前的草稿')
+    expect(sendMessage.mock.calls.filter(([message]) => message.type === 'DRAFT_CREATE')).toHaveLength(1)
+  })
+
+  it('preserves edits and the submitted asset when returning during creation, without replaying on navigation', async () => {
+    let finish!: (response: DraftResponse) => void
+    sendMessage.mockImplementation(async (message) => message.type === 'DRAFT_CREATE'
+      ? new Promise((resolve) => { finish = resolve })
+      : { ok: true, jobs: [] })
+    composer.setSnapshot(snapshot)
+    const title = container.querySelector<HTMLInputElement>('input[name=title]')!
+    const body = container.querySelector<HTMLTextAreaElement>('textarea[name=body]')!
+    title.value = '本次标题'
+    body.value = '本次正文'
+    body.dispatchEvent(new Event('input', { bubbles: true }))
+    submit()
+    expect(progress.textContent).toContain('正在创建草稿任务')
+    progress.querySelector<HTMLButtonElement>('.draft-back')!.click()
+    expect(title.value).toBe('本次标题')
+    expect(body.value).toBe('本次正文')
+    expect(button().disabled).toBe(true)
+    composer.setSnapshot({ ...snapshot, bytes: null })
+    composer.setSnapshot({ ...snapshot, bytes: new Uint8Array([1, 2, 3]) })
+    finish({ ok: true, jobs: [job] })
+    await vi.waitFor(() => expect(progress.textContent).toContain(job.message))
+    expect(onViewChange).toHaveBeenLastCalledWith('editor')
+    expect(container.hidden).toBe(false)
+    composer.showProgress()
+    progress.querySelector<HTMLButtonElement>('.draft-back')!.click()
+    const creates = sendMessage.mock.calls.filter(([message]) => message.type === 'DRAFT_CREATE')
+    expect(creates).toHaveLength(1)
+    expect(creates[0]![0]).toEqual(expect.objectContaining({ input: expect.objectContaining({ title: '本次标题', body: '本次正文', bytes: Array.from(snapshot.bytes) }) }))
+  })
+
+  it('does not let an older task-list response erase a newly created job or newer saved evidence', async () => {
+    let finishList!: (response: DraftResponse) => void
+    sendMessage.mockImplementation(async (message) => message.type === 'DRAFT_CREATE'
+      ? { ok: true, jobs: [job] }
+      : new Promise((resolve) => { finishList = resolve }))
+    for (const listener of listeners) listener({}, 'local')
+    composer.setSnapshot(snapshot)
+    submit()
+    await vi.waitFor(() => expect(progress.textContent).toContain(job.message))
+    finishList({ ok: true, jobs: [] })
+    await Promise.resolve()
+    expect(progress.textContent).toContain(job.message)
+    const saved = { ...job, status: 'saved' as const, updatedAt: 10, message: '已重新打开核对', evidence: { title: job.title, body: job.body, imageCount: 1, imageHash: 'test-image-hash', storage: 'browser' as const, verifiedAt: 10 } }
+    sendMessage.mockResolvedValue({ ok: true, jobs: [saved] })
+    for (const listener of listeners) listener({}, 'local')
+    await vi.waitFor(() => expect(progress.textContent).toContain('此浏览器草稿箱'))
+    sendMessage.mockResolvedValue({ ok: true, jobs: [job] })
+    for (const listener of listeners) listener({}, 'local')
+    await Promise.resolve()
+    expect(progress.textContent).toContain('此浏览器草稿箱')
+  })
+
+  it('keeps a failed creation visible after switching to history until a new submission starts', async () => {
+    let finish!: (response: DraftResponse) => void
+    const historical: DraftJob = { ...job, id: 'old-saved-job', title: '以前已保存的草稿', status: 'saved', message: '已核对完成' }
+    sendMessage.mockImplementation(async (message) => message.type === 'DRAFT_CREATE'
+      ? new Promise((resolve) => { finish = resolve })
+      : { ok: true, jobs: [historical] })
+    for (const listener of listeners) listener({}, 'local')
+    await vi.waitFor(() => expect(progress.textContent).toContain(historical.title))
+    composer.setSnapshot(snapshot)
+    submit()
+    composer.showProgress()
+    finish({ ok: false, error: '创作者中心访问权限已失效' })
+    const error = progress.querySelector<HTMLElement>('.draft-submit-error')!
+    const heading = progress.querySelector<HTMLElement>('.draft-progress-heading')!
+    await vi.waitFor(() => expect(error.hidden).toBe(false))
+    expect(error.textContent).toBe('创作者中心访问权限已失效')
+    expect(heading.textContent).toBe('同步未开始')
+    expect(progress.textContent).toContain(historical.title)
+    progress.querySelector<HTMLButtonElement>('.draft-back')!.click()
+    composer.showProgress()
+    expect(error.hidden).toBe(false)
+    expect(heading.textContent).toBe('同步未开始')
+    progress.querySelector<HTMLButtonElement>('.draft-back')!.click()
+    submit()
+    expect(error.hidden).toBe(true)
+    expect(heading.textContent).toContain('正在创建草稿任务')
+    finish({ ok: true, jobs: [job] })
+    await vi.waitFor(() => expect(heading.textContent).toBe('需要你接手'))
+    expect(error.hidden).toBe(true)
+  })
+
 })
