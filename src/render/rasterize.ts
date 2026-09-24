@@ -37,7 +37,8 @@ export async function renderStatusPngViaChrome(
 ): Promise<Uint8Array> {
   const { width: outW, height: outH } = ASPECT_SIZE[options.aspect]
   const articleCssWidth = 598
-  const scale = outW / articleCssWidth
+  // Integer DPR for crisp SVG rings; scale down to export width when compositing.
+  const captureDpr = 2
 
   const avatarDataUrl = await avatarToDataUrl(
     post.avatarUrl?.replace('_normal.', '_bigger.') ?? post.avatarUrl,
@@ -62,7 +63,7 @@ export async function renderStatusPngViaChrome(
   try {
     const page = await browser.newPage({
       viewport: { width: Math.ceil(articleCssWidth), height: 900 },
-      deviceScaleFactor: scale,
+      deviceScaleFactor: captureDpr,
     })
     await page.goto(`file://${htmlPath}`, { waitUntil: 'networkidle' })
     // Wait for fonts / emoji
@@ -74,7 +75,6 @@ export async function renderStatusPngViaChrome(
     await article.screenshot({ path: shotPath, type: 'png' })
     await browser.close()
 
-    // Composite onto white vertical canvas using sharp if available; else canvas
     const articlePng = readFileSync(shotPath)
     return await compositeOnWhite(articlePng, outW, outH)
   } catch (err) {

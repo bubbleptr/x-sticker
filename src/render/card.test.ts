@@ -105,6 +105,28 @@ describe('cardVisibleText', () => {
   })
 })
 
+describe('action icon SVG (live X scrape)', () => {
+  it('emits fill=currentColor, 1em, no stroke, scraped paths', async () => {
+    const { buildActionIconSvg, X_ACTION_ICON_PATHS } = await import('./xIcons')
+    const { buildStatusArticleHtml } = await import('./statusHtml')
+    const reply = buildActionIconSvg('reply')
+    expect(reply).toContain('fill="currentColor"')
+    expect(reply).toContain('width="1em"')
+    expect(reply).toContain('height="1em"')
+    expect(reply).toContain('viewBox="0 0 24 24"')
+    expect(reply).toContain('data-icon="icon-reply-stroke"')
+    expect(reply).not.toContain('stroke=')
+    expect(reply).toContain(X_ACTION_ICON_PATHS.reply)
+
+    const html = buildStatusArticleHtml(fixture, baseOptions)
+    expect(html).toContain('data-icon="icon-retweet-stroke"')
+    expect(html).toContain('data-icon="icon-heart-stroke"')
+    expect(html).toContain('data-icon="icon-bookmark-stroke"')
+    expect(html).toContain('data-icon="icon-outgoing"')
+    expect(html).toContain('font-size: 1.25em')
+  })
+})
+
 describe('renderCardPng (HTML → Chrome)', () => {
   it('returns PNG matching status-detail pipeline', async () => {
     const bytes = await renderCardPng(fixture, baseOptions)

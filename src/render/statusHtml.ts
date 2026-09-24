@@ -1,9 +1,13 @@
 import type { PostText, RenderOptions } from '../types'
 import { formatCompactCount, formatMetaClock } from './format'
-import { VERIFIED_BADGE_SVG, X_ACTION_ICON_PATHS } from './xIcons'
+import { buildActionIconSvg, VERIFIED_BADGE_SVG } from './xIcons'
 
 const FONT =
-  'TwitterChirp, "Chirp", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", "WenQuanYi Micro Hei", "Noto Sans SC", sans-serif'
+  'TwitterChirp, "Chirp", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, "DejaVu Sans", "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", "WenQuanYi Micro Hei", "Noto Sans SC", sans-serif'
+
+/** Latin-friendly stack for engagement counts (Chirp unavailable on Linux). */
+const COUNT_FONT =
+  'TwitterChirp, "Chirp", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, "DejaVu Sans", sans-serif'
 
 function escapeHtml(s: string): string {
   return s
@@ -23,10 +27,6 @@ function bodyHtml(text: string): string {
       return `<p class="line">${escapeHtml(line)}</p>`
     })
     .join('')
-}
-
-function iconSvg(d: string, color: string, size = 22.5): string {
-  return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true"><path fill="${color}" d="${d}"></path></svg>`
 }
 
 /**
@@ -58,15 +58,14 @@ export function buildStatusArticleHtml(
   const muted = '#536471'
   const likeColor = post.liked ? '#F91880' : muted
   const bookmarkColor = post.bookmarked ? '#1D9BF0' : muted
-  const likePath = post.liked ? X_ACTION_ICON_PATHS.likeFilled : X_ACTION_ICON_PATHS.likeOutline
-  const bookmarkPath = post.bookmarked
-    ? X_ACTION_ICON_PATHS.bookmarkFilled
-    : X_ACTION_ICON_PATHS.bookmarkOutline
 
   const count = (n: number | undefined, color: string) =>
     n !== undefined && n > 0
       ? `<span class="count" style="color:${color}">${escapeHtml(formatCompactCount(n, locale))}</span>`
       : ''
+
+  const action = (icon: string, countHtml: string, color: string) =>
+    `<div class="action" style="color:${color}"><span class="action-icon">${icon}</span>${countHtml}</div>`
 
   const avatarSrc = opts?.avatarDataUrl || post.avatarUrl || ''
   const initial = [...(name || handle || '用')][0] ?? '用'
@@ -153,6 +152,7 @@ export function buildStatusArticleHtml(
   }
   .views-num { font-weight: 700; color: #0f1419; }
   .views-label, .sep { color: #536471; font-weight: 400; }
+  /* Action row: live X uses svg width/height 1em; icon wrapper font-size 1.25em of 15px → 18.75px */
   .actions {
     display: flex;
     justify-content: space-between;
@@ -165,13 +165,32 @@ export function buildStatusArticleHtml(
     align-items: center;
     gap: 4px;
     color: #536471;
+    font-size: 15px;
+    line-height: 20px;
     min-width: 0;
   }
-  .action svg { display: block; }
+  .action-icon {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.25em; /* 18.75px when .action is 15px — matches live X 1em SVG sizing */
+    line-height: 1;
+    color: inherit;
+  }
+  .action-icon svg {
+    width: 1em;
+    height: 1em;
+    display: flex;
+    fill: currentColor;
+  }
   .count {
+    font-family: ${COUNT_FONT};
     font-size: 15px;
     line-height: 20px;
     font-weight: 400;
+    font-synthesis: none;
+    color: #536471;
   }
   .footer {
     display: flex;
@@ -201,11 +220,11 @@ export function buildStatusArticleHtml(
     <div class="body">${bodyHtml(post.text)}</div>
     <div class="meta">${escapeHtml(clock)}${viewsHtml}</div>
     <div class="actions">
-      <div class="action">${iconSvg(X_ACTION_ICON_PATHS.reply, muted)}${count(post.stats?.replies, muted)}</div>
-      <div class="action">${iconSvg(X_ACTION_ICON_PATHS.repost, muted)}${count(post.stats?.reposts, muted)}</div>
-      <div class="action">${iconSvg(likePath, likeColor)}${count(post.stats?.likes, likeColor)}</div>
-      <div class="action">${iconSvg(bookmarkPath, bookmarkColor)}${count(post.stats?.bookmarks, bookmarkColor)}</div>
-      <div class="action">${iconSvg(X_ACTION_ICON_PATHS.share, muted)}</div>
+      ${action(buildActionIconSvg('reply'), count(post.stats?.replies, muted), muted)}
+      ${action(buildActionIconSvg('repost'), count(post.stats?.reposts, muted), muted)}
+      ${action(buildActionIconSvg('like', { filled: post.liked }), count(post.stats?.likes, likeColor), likeColor)}
+      ${action(buildActionIconSvg('bookmark', { filled: post.bookmarked }), count(post.stats?.bookmarks, bookmarkColor), bookmarkColor)}
+      ${action(buildActionIconSvg('share'), '', muted)}
     </div>
   </article>
 </body>
