@@ -6,6 +6,7 @@ import {
   articleFromShareButton,
   buildKatieMenuItem,
   findOpenShareTarget,
+  KATIE_MENU_ICON_ATTR,
   KATIE_SHARE_ITEM_ATTR,
   syncShareMenu,
 } from './share-menu'
@@ -69,17 +70,53 @@ describe('findOpenShareTarget', () => {
 })
 
 describe('buildKatieMenuItem', () => {
-  it('copies a native menuitem and replaces the label', () => {
+  it('copies a native menuitem, keeps its icon slot, and draws a currentColor card icon', () => {
     const doc = mount(timeline)
     const menu = doc.getElementById('share')!
     const before = menu.querySelector('[role="menuitem"]')!.textContent
     const item = buildKatieMenuItem(menu)
+    const icon = item.querySelector('svg')
     expect(item.getAttribute('role')).toBe('menuitem')
     expect(item.getAttribute(KATIE_SHARE_ITEM_ATTR)).toBe('')
     expect(item.textContent).toBe('做成卡贴')
-    expect(item.querySelector('svg')).toBeNull()
+    expect(icon?.getAttribute(KATIE_MENU_ICON_ATTR)).toBe('')
+    expect(icon?.getAttribute('width')).toBe('18.75')
+    expect(icon?.getAttribute('height')).toBe('18.75')
+    expect(icon?.style.stroke).toBe('currentColor')
+    expect(icon?.querySelector('rect')).not.toBeNull()
+    expect(menu.querySelector(`[${KATIE_MENU_ICON_ATTR}]`)).toBeNull()
     expect(menu.querySelector('[role="menuitem"]')!.textContent).toBe(before)
     expect(menu.querySelector('svg')).not.toBeNull()
+  })
+
+  it('keeps a native icon box and still adds the card glyph', () => {
+    const doc = mount(`
+      <div role="menu" id="sized">
+        <div role="menuitem" style="display:flex;align-items:center;gap:12px;padding:16px;">
+          <svg viewBox="0 0 24 24" width="18.75" height="18.75"><path d="M0 0h24v24H0z"></path></svg>
+          <span>复制链接</span>
+        </div>
+      </div>
+    `)
+    const item = buildKatieMenuItem(doc.getElementById('sized')!)
+    const icon = item.querySelector('svg')!
+    expect(icon.getAttribute('width')).toBe('18.75')
+    expect(icon.getAttribute('height')).toBe('18.75')
+    expect(icon.querySelector('path')?.getAttribute('d')).not.toBe('M0 0h24v24H0z')
+    expect(item.querySelector('span')!.textContent).toBe('做成卡贴')
+    expect(item.querySelectorAll('svg')).toHaveLength(1)
+  })
+
+  it('inserts an icon when the template row has only a label', () => {
+    const doc = mount(`
+      <div role="menu" id="plain">
+        <div role="menuitem"><span>收藏到文件夹</span></div>
+      </div>
+    `)
+    const item = buildKatieMenuItem(doc.getElementById('plain')!)
+    expect(item.querySelector(`[${KATIE_MENU_ICON_ATTR}]`)).not.toBeNull()
+    expect(item.style.display).toBe('flex')
+    expect(item.textContent).toBe('做成卡贴')
   })
 })
 

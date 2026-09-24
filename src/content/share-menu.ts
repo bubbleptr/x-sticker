@@ -1,6 +1,10 @@
 export const KATIE_SHARE_ITEM_ATTR = 'data-katie-share-item'
+export const KATIE_MENU_ICON_ATTR = 'data-katie-icon'
 
 const KATIE_LABEL = '做成卡贴'
+/** X share rows use a 1.25em icon on 15px text (18.75px). */
+const MENU_ICON_PX = '18.75'
+const SVG_NS = 'http://www.w3.org/2000/svg'
 
 const SHARE_LABELS = new Set([
   '分享帖子',
@@ -55,13 +59,74 @@ export function findOpenShareTarget(doc: Document): ShareTarget | null {
   return null
 }
 
+function iconHasSize(svg: SVGElement): boolean {
+  if (svg.getAttribute('width') || svg.getAttribute('height') || svg.getAttribute('class')) return true
+  const style = svg.getAttribute('style') ?? ''
+  return style.includes('width') || style.includes('height')
+}
+
+/** Line icon: a photo card. Stroke uses currentColor so light and dark X menus both read. */
+function paintMenuIcon(svg: SVGElement): void {
+  svg.setAttribute('viewBox', '0 0 24 24')
+  svg.setAttribute('aria-hidden', 'true')
+  svg.setAttribute(KATIE_MENU_ICON_ATTR, '')
+  if (!iconHasSize(svg)) {
+    svg.setAttribute('width', MENU_ICON_PX)
+    svg.setAttribute('height', MENU_ICON_PX)
+  }
+  svg.style.fill = 'none'
+  svg.style.stroke = 'currentColor'
+  svg.style.strokeWidth = '1.8'
+  svg.style.strokeLinecap = 'round'
+  svg.style.strokeLinejoin = 'round'
+  while (svg.firstChild) svg.removeChild(svg.firstChild)
+
+  const rect = document.createElementNS(SVG_NS, 'rect')
+  rect.setAttribute('x', '4')
+  rect.setAttribute('y', '4')
+  rect.setAttribute('width', '16')
+  rect.setAttribute('height', '16')
+  rect.setAttribute('rx', '2')
+
+  const sun = document.createElementNS(SVG_NS, 'circle')
+  sun.setAttribute('cx', '9')
+  sun.setAttribute('cy', '9')
+  sun.setAttribute('r', '1.15')
+  sun.style.fill = 'currentColor'
+  sun.style.stroke = 'none'
+
+  const ridge = document.createElementNS(SVG_NS, 'path')
+  ridge.setAttribute('d', 'M5 16.2 8.8 12.4a1.1 1.1 0 0 1 1.55 0l1.5 1.5 1.7-1.75a1.1 1.1 0 0 1 1.55 0L19 16.4')
+
+  svg.append(rect, sun, ridge)
+}
+
+function ensureMenuIcon(item: HTMLElement): void {
+  const svgs = Array.from(item.querySelectorAll('svg'))
+  if (svgs.length === 0) {
+    const svg = document.createElementNS(SVG_NS, 'svg')
+    const label = labelSpan(item)
+    if (label?.parentElement) label.parentElement.insertBefore(svg, label)
+    else item.prepend(svg)
+    if (!item.style.display) item.style.display = 'flex'
+    if (!item.style.alignItems) item.style.alignItems = 'center'
+    if (!item.style.gap) item.style.gap = '12px'
+    paintMenuIcon(svg)
+    return
+  }
+  paintMenuIcon(svgs[0]!)
+  for (const extra of svgs.slice(1)) extra.remove()
+}
+
 function plainMenuItem(): HTMLElement {
   const item = document.createElement('div')
   item.setAttribute('role', 'menuitem')
   item.tabIndex = 0
-  item.textContent = KATIE_LABEL
   item.style.cssText =
-    'padding:12px 16px;cursor:pointer;font:15px/20px system-ui,sans-serif;text-align:left;'
+    'display:flex;align-items:center;gap:12px;padding:16px;cursor:pointer;font:700 15px/20px system-ui,sans-serif;text-align:left;color:inherit;'
+  const span = document.createElement('span')
+  span.textContent = KATIE_LABEL
+  item.append(span)
   return item
 }
 
@@ -80,16 +145,15 @@ export function buildKatieMenuItem(menu: ParentNode): HTMLElement {
   const item = template instanceof HTMLElement ? (template.cloneNode(true) as HTMLElement) : plainMenuItem()
   item.removeAttribute('id')
   item.removeAttribute('data-testid')
-  for (const icon of Array.from(item.querySelectorAll('svg, img'))) {
-    const holder = icon.parentElement
-    icon.remove()
-    if (holder && holder !== item && holder.childElementCount === 0 && !(holder.textContent ?? '').trim()) {
-      holder.remove()
-    }
-  }
+  for (const img of Array.from(item.querySelectorAll('img'))) img.remove()
   const span = labelSpan(item)
   if (span) span.textContent = KATIE_LABEL
-  else item.textContent = KATIE_LABEL
+  else if (!item.querySelector('span')) {
+    const label = document.createElement('span')
+    label.textContent = KATIE_LABEL
+    item.append(label)
+  }
+  ensureMenuIcon(item)
   item.setAttribute('role', 'menuitem')
   item.setAttribute(KATIE_SHARE_ITEM_ATTR, '')
   item.setAttribute('aria-label', KATIE_LABEL)
