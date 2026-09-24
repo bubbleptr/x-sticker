@@ -4,8 +4,8 @@ import { createDouyinAdapter } from './douyin'
 import type { DraftJob } from './types'
 
 const job: DraftJob = {
-  id: 'dy-1', assetId: 'asset-1', platform: 'douyin', title: '草稿标题', body: '草稿正文',
-  sourceUrl: 'https://x.com/example/status/1', filename: 'sticker.png', createdAt: 1, updatedAt: 1,
+  id: 'dy-1', assets: [{ id: 'asset-1', filename: 'sticker.png', mimeType: 'image/png' }], platform: 'douyin', title: '草稿标题', body: '草稿正文',
+  sourceUrl: 'https://x.com/example/status/1', createdAt: 1, updatedAt: 1,
   status: 'running', step: 'verifying', message: '',
 }
 const editor = `
@@ -25,6 +25,15 @@ const resumePrompt = `
 beforeEach(() => { document.body.innerHTML = '' })
 
 describe('Douyin adapter', () => {
+  it('preserves all visible image slots in order without counting mirrors, avatars or empty placeholders', () => {
+    document.body.innerHTML = editor.replace('已添加1张图片', '已添加2张图片').replace('<img src="photo.png" />', '<img id="cover" src="cover.png" />') +
+      '<img src="avatar.jpg"><div hidden class="img-mirror"><img src="cover.png"></div>' +
+      '<div class="img-placeholder"><img></div><div class="img-photo"><img id="photo" src="photo.jpg"></div>'
+    const current = createDouyinAdapter().getEditor()!
+    expect(current.imageCount).toBe(2)
+    expect(current.images.map((image) => image.id)).toEqual(['cover', 'photo'])
+  })
+
   it('detects an unpublished draft before upload and does not click continue or discard', () => {
     document.body.innerHTML = `<input type="file" accept="image/jpeg,image/png" />${resumePrompt}`
     const click = vi.fn()
@@ -53,7 +62,7 @@ describe('Douyin adapter', () => {
     expect(adapter.getEditor()).toBeNull()
   })
 
-  it('returns only the single visible decoded image for draft verification', () => {
+  it('returns visible image slots even while decoding so the runner can await every image', () => {
     document.body.innerHTML = editor + '<div class="img-hidden" hidden><img id="hidden-photo" src="old.png" /></div>'
     const photo = document.querySelector<HTMLImageElement>('.image-list img')!
     const hiddenPhoto = document.querySelector<HTMLImageElement>('#hidden-photo')!
@@ -61,11 +70,11 @@ describe('Douyin adapter', () => {
     Object.defineProperties(photo, { complete: { value: true, configurable: true }, naturalWidth: { value: 0, configurable: true } })
     const adapter = createDouyinAdapter(document)
     expect(adapter.getEditor()?.imageCount).toBe(1)
-    expect(adapter.getEditor()?.image).toBeNull()
+    expect(adapter.getEditor()?.images).toEqual([photo])
     Object.defineProperties(photo, { complete: { value: false, configurable: true }, naturalWidth: { value: 200, configurable: true } })
-    expect(adapter.getEditor()?.image).toBeNull()
+    expect(adapter.getEditor()?.images).toEqual([photo])
     Object.defineProperty(photo, 'complete', { value: true })
-    expect(adapter.getEditor()?.image).toBe(photo)
+    expect(adapter.getEditor()?.images).toEqual([photo])
   })
 
   it('stops when the title or Slate editor is ambiguous instead of choosing a field', () => {

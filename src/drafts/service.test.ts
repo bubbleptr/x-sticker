@@ -3,9 +3,9 @@ import { createDraftService, type DraftRepository, type DraftTabs } from './serv
 import type { DraftInput, DraftJob, DraftUpdate } from './types'
 
 const png = [137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,0,0,0,1,0,0,0,1,8,6,0,0,0,31,21,196,137,0,0,0,11,73,68,65,84,120,156,99,96,0,2,0,0,5,0,1,165,246,69,64,0,0,0,0,73,69,78,68,174,66,96,130]
-const input: DraftInput = { platforms: ['xiaohongshu', 'douyin'], title: '一张贴图', body: '测试正文', sourceUrl: 'https://x.com/author/status/123', filename: 'sticker.png', bytes: png }
+const input: DraftInput = { platforms: ['xiaohongshu', 'douyin'], title: '一张贴图', body: '测试正文', sourceUrl: 'https://x.com/author/status/123', images: [{ filename: 'sticker.png', mimeType: 'image/png', dataUrl: `data:image/png;base64,${btoa(String.fromCharCode(...png))}` }] }
 const ui: chrome.runtime.MessageSender = { id: 'extension', url: 'https://x.com/home', origin: 'https://x.com', frameId: 0 }
-const imageHash = 'a'.repeat(64)
+const imageHashes = ['a'.repeat(64)]
 
 function setup() {
   let jobs: DraftJob[] = []
@@ -45,6 +45,52 @@ function creator(job: DraftJob): chrome.runtime.MessageSender {
 }
 
 describe('persistent draft workflow', () => {
+  it('requires complete ordered image evidence for a multi-image draft after a service restart', async () => {
+    const context = setup()
+    const response = await context.service.handle({ type: 'DRAFT_CREATE', input: {
+      ...input, platforms: ['xiaohongshu'], images: [input.images[0]!, { ...input.images[0]!, filename: 'photo.png' }],
+    } }, ui)
+    if (!response.ok || !('jobs' in response)) throw new Error('Draft creation failed')
+    const job = response.jobs[0]!
+    const sender = creator(job)
+    await context.service.handle({ type: 'DRAFT_CLAIM', platform: job.platform }, sender)
+    await context.service.handle({ type: 'DRAFT_UPDATE', id: job.id, update: { status: 'running', step: 'uploading', message: '上传中' } }, sender)
+    const hashes = ['a'.repeat(64), 'b'.repeat(64)]
+    expect(await context.service.handle({ type: 'DRAFT_UPDATE', id: job.id, update: { status: 'running', step: 'filling', imageHashes: hashes, message: '已核对' } }, sender)).toEqual({ ok: true })
+    await context.service.handle({ type: 'DRAFT_UPDATE', id: job.id, update: { status: 'running', step: 'verifying', message: '重开核对' } }, sender)
+    const restored = createDraftService({ repository: context.repository, tabs: context.tabs, extensionId: 'extension', now: () => 1000 })
+    expect(await restored.handle({ type: 'DRAFT_INSPECT', platform: job.platform }, sender)).toMatchObject({ ok: true, job: { imageHashes: hashes }, images: [input.images[0]!, { ...input.images[0]!, filename: 'photo.png' }] })
+    for (const evidenceHashes of [[hashes[0]], [...hashes].reverse(), [hashes[0], 'c'.repeat(64)]]) {
+      const result = await restored.handle({ type: 'DRAFT_UPDATE', id: job.id, update: { status: 'saved', step: 'verifying', message: '保存', evidence: {
+        title: job.title, body: job.body, imageCount: 2, imageHashes: evidenceHashes as string[], storage: 'browser', verifiedAt: 1000,
+      } } }, sender)
+      expect(result.ok).toBe(false)
+    }
+    expect(await restored.handle({ type: 'DRAFT_UPDATE', id: job.id, update: { status: 'saved', step: 'verifying', message: '保存', evidence: {
+      title: job.title, body: job.body, imageCount: 2, imageHashes: hashes, storage: 'browser', verifiedAt: 1000,
+    } } }, sender)).toEqual({ ok: true })
+  })
+
+  it('delivers a cover and attachments in the same order to both platform jobs', async () => {
+    const context = setup()
+    const dataUrl = `data:image/png;base64,${btoa(String.fromCharCode(...png))}`
+    const images = [
+      { filename: 'cover.png', mimeType: 'image/png' as const, dataUrl },
+      { filename: 'photo.png', mimeType: 'image/png' as const, dataUrl },
+    ]
+    const response = await context.service.handle({ type: 'DRAFT_CREATE', input: {
+      platforms: input.platforms, title: input.title, body: input.body, sourceUrl: input.sourceUrl, images,
+    } }, ui)
+    expect(response.ok).toBe(true)
+    if (!response.ok || !('jobs' in response)) throw new Error('Draft creation failed')
+    expect(response.jobs).toHaveLength(2)
+    for (const job of response.jobs) {
+      expect(job.assets.map((asset) => asset.filename)).toEqual(['cover.png', 'photo.png'])
+      expect(await context.service.handle({ type: 'DRAFT_CLAIM', platform: job.platform }, creator(job)))
+        .toMatchObject({ ok: true, images })
+    }
+  })
+
   it('persists a pre-upload Douyin blocker and clears it when continuing, stopping or receiving a different result', async () => {
     const context = setup()
     const [, job] = await create(context)
@@ -79,7 +125,7 @@ describe('persistent draft workflow', () => {
     { platform: 'xiaohongshu', status: 'needs_attention', step: 'opening' },
     { platform: 'douyin', status: 'running', step: 'opening' },
     { platform: 'douyin', status: 'needs_attention', step: 'uploading' },
-    { platform: 'douyin', status: 'needs_attention', step: 'opening', hash: imageHash },
+    { platform: 'douyin', status: 'needs_attention', step: 'opening', hash: imageHashes },
     { platform: 'douyin', status: 'needs_attention', step: 'opening', blocker: 'other' },
   ])('rejects a blocker that could incorrectly enable uploading again: %j', async ({ platform, status, step, hash, blocker }) => {
     const context = setup()
@@ -89,7 +135,7 @@ describe('persistent draft workflow', () => {
     await context.service.handle({ type: 'DRAFT_CLAIM', platform: job.platform }, sender)
     if (hash) {
       await context.service.handle({ type: 'DRAFT_UPDATE', id: job.id, update: { status: 'running', step: 'uploading', message: '上传' } }, sender)
-      await context.service.handle({ type: 'DRAFT_UPDATE', id: job.id, update: { status: 'running', step: 'filling', imageHash: hash, message: '已上传' } }, sender)
+      await context.service.handle({ type: 'DRAFT_UPDATE', id: job.id, update: { status: 'running', step: 'filling', imageHashes: hash, message: '已上传' } }, sender)
     }
     const result = await context.service.handle({ type: 'DRAFT_UPDATE', id: job.id, update: { status, step, blocker: blocker ?? 'existing_draft', message: '错误的可重试标记' } as DraftUpdate }, sender)
     expect(result.ok).toBe(false)
@@ -150,13 +196,13 @@ describe('persistent draft workflow', () => {
     expect(await context.service.handle({ type: 'DRAFT_INSPECT', platform: job.platform }, creator(job))).toMatchObject({ ok: true, job: { status: 'needs_attention', step: 'opening' } })
   })
 
-  it.each([{ hash: undefined }, { hash: 'not-a-sha256' }, { hash: [imageHash] }])('rejects a missing or malformed fingerprint before filling: %j', async ({ hash: invalidHash }) => {
+  it.each([{ hash: undefined }, { hash: ['not-a-sha256'] }, { hash: 'a'.repeat(64) }])('rejects a missing or malformed fingerprint before filling: %j', async ({ hash: invalidHash }) => {
     const context = setup()
     const [job] = await create(context)
     const sender = creator(job)
     await context.service.handle({ type: 'DRAFT_CLAIM', platform: job.platform }, sender)
     await context.service.handle({ type: 'DRAFT_UPDATE', id: job.id, update: { status: 'running', step: 'uploading', message: '上传中' } }, sender)
-    expect((await context.service.handle({ type: 'DRAFT_UPDATE', id: job.id, update: { status: 'running', step: 'filling', message: '填写中', imageHash: invalidHash as string | undefined } }, sender)).ok).toBe(false)
+    expect((await context.service.handle({ type: 'DRAFT_UPDATE', id: job.id, update: { status: 'running', step: 'filling', message: '填写中', imageHashes: invalidHash as string[] | undefined } }, sender)).ok).toBe(false)
   })
 
   it('allows only one active task per platform while other platforms continue independently', async () => {
@@ -188,14 +234,14 @@ describe('persistent draft workflow', () => {
     const sender = creator(job)
     await context.service.handle({ type: 'DRAFT_CLAIM', platform: job.platform }, sender)
     await context.service.handle({ type: 'DRAFT_UPDATE', id: job.id, update: { status: 'running', step: 'uploading', message: '上传中' } }, sender)
-    expect((await context.service.handle({ type: 'DRAFT_UPDATE', id: job.id, update: { status: 'running', step: 'filling', message: '写入前核对', imageHash } }, sender)).ok).toBe(true)
+    expect((await context.service.handle({ type: 'DRAFT_UPDATE', id: job.id, update: { status: 'running', step: 'filling', message: '写入前核对', imageHashes } }, sender)).ok).toBe(true)
     const restored = createDraftService({ repository: context.repository, tabs: context.tabs, extensionId: 'extension', now: () => 1000 })
-    expect(await restored.handle({ type: 'DRAFT_INSPECT', platform: job.platform }, sender)).toMatchObject({ ok: true, job: { imageHash } })
-    expect((await restored.handle({ type: 'DRAFT_UPDATE', id: job.id, update: { status: 'running', step: 'filling', message: '另一张图', imageHash: 'b'.repeat(64) } }, sender)).ok).toBe(false)
+    expect(await restored.handle({ type: 'DRAFT_INSPECT', platform: job.platform }, sender)).toMatchObject({ ok: true, job: { imageHashes } })
+    expect((await restored.handle({ type: 'DRAFT_UPDATE', id: job.id, update: { status: 'running', step: 'filling', message: '另一张图', imageHashes: ['b'.repeat(64)] } }, sender)).ok).toBe(false)
     await restored.handle({ type: 'DRAFT_UPDATE', id: job.id, update: { status: 'running', step: 'verifying', message: '重新打开核对' } }, sender)
-    const saved: DraftUpdate = { status: 'saved', step: 'verifying', message: '已核对', evidence: { title: input.title, body: input.body, imageCount: 1, imageHash: 'b'.repeat(64), storage: 'browser', verifiedAt: 1000 } }
+    const saved: DraftUpdate = { status: 'saved', step: 'verifying', message: '已核对', evidence: { title: input.title, body: input.body, imageCount: 1, imageHashes: ['b'.repeat(64)], storage: 'browser', verifiedAt: 1000 } }
     expect((await restored.handle({ type: 'DRAFT_UPDATE', id: job.id, update: saved }, sender)).ok).toBe(false)
-    expect((await restored.handle({ type: 'DRAFT_UPDATE', id: job.id, update: { ...saved, evidence: { ...saved.evidence!, imageHash } } }, sender)).ok).toBe(true)
+    expect((await restored.handle({ type: 'DRAFT_UPDATE', id: job.id, update: { ...saved, evidence: { ...saved.evidence!, imageHashes } } }, sender)).ok).toBe(true)
   })
 
   it('marks closed or browser-restarted tasks for attention without reusing stale tab IDs', async () => {
@@ -244,12 +290,12 @@ describe('persistent draft workflow', () => {
     const context = setup()
     const [job] = await create(context)
     const sender = creator(job)
-    const saved: DraftUpdate = { status: 'saved', step: 'verifying', message: '已核对', evidence: { title: input.title, body: input.body, imageCount: 1, imageHash, storage: 'browser', verifiedAt: 1000 } }
+    const saved: DraftUpdate = { status: 'saved', step: 'verifying', message: '已核对', evidence: { title: input.title, body: input.body, imageCount: 1, imageHashes, storage: 'browser', verifiedAt: 1000 } }
     expect((await context.service.handle({ type: 'DRAFT_UPDATE', id: job.id, update: saved }, sender)).ok).toBe(false)
     await context.service.handle({ type: 'DRAFT_CLAIM', platform: job.platform }, sender)
     expect((await context.service.handle({ type: 'DRAFT_UPDATE', id: job.id, update: saved }, sender)).ok).toBe(false)
     await context.service.handle({ type: 'DRAFT_UPDATE', id: job.id, update: { status: 'running', step: 'uploading', message: '上传中' } }, sender)
-    await context.service.handle({ type: 'DRAFT_UPDATE', id: job.id, update: { status: 'running', step: 'filling', message: '填写中', imageHash } }, sender)
+    await context.service.handle({ type: 'DRAFT_UPDATE', id: job.id, update: { status: 'running', step: 'filling', message: '填写中', imageHashes } }, sender)
     expect((await context.service.handle({ type: 'DRAFT_UPDATE', id: job.id, update: { status: 'running', step: 'verifying', message: '重新打开核对' } }, sender)).ok).toBe(true)
     for (const evidence of [undefined, { ...saved.evidence!, title: '别的草稿' }, { ...saved.evidence!, body: '正文不对' }, { ...saved.evidence!, imageCount: 2 }]) {
       expect((await context.service.handle({ type: 'DRAFT_UPDATE', id: job.id, update: { ...saved, evidence } }, sender)).ok).toBe(false)
@@ -271,7 +317,7 @@ describe('persistent draft workflow', () => {
     expect(claims.map((response) => response.ok)).toEqual([true, false])
     const restored = createDraftService({ repository: context.repository, tabs: context.tabs, extensionId: 'extension' })
     const inspected = await restored.handle({ type: 'DRAFT_INSPECT', platform: job.platform }, sender)
-    expect(inspected).toMatchObject({ ok: true, job: { status: 'needs_attention' }, bytes: png })
+    expect(inspected).toMatchObject({ ok: true, job: { status: 'needs_attention' }, images: input.images })
     expect((await restored.handle({ type: 'DRAFT_CLAIM', platform: job.platform }, sender)).ok).toBe(false)
   })
 
@@ -289,7 +335,7 @@ describe('persistent draft workflow', () => {
       expect((await context.service.handle({ type: 'DRAFT_CLAIM', platform: 'xiaohongshu' }, invalid)).ok).toBe(false)
     }
     const result = await context.service.handle({ type: 'DRAFT_CLAIM', platform: 'xiaohongshu' }, sender)
-    expect(result).toMatchObject({ ok: true, job: { id: job.id, status: 'running' }, bytes: png })
+    expect(result).toMatchObject({ ok: true, job: { id: job.id, status: 'running' }, images: input.images })
   })
 
   it('keeps the second platform independent when opening the first fails', async () => {
@@ -309,11 +355,11 @@ describe('persistent draft workflow', () => {
     { title: '' },
     { title: '长'.repeat(21) },
     { body: '字'.repeat(1001) },
-    { bytes: [1, 2, 3] },
-    { bytes: [...png.slice(0, 20)] },
+    { images: [{ ...input.images[0], dataUrl: 'data:image/png;base64,AQID' }] },
+    { images: [] },
     { platforms: ['wechat'] },
     { platforms: [] },
-    { filename: '../sticker.png' },
+    { images: [{ ...input.images[0], filename: '../sticker.png' }] },
   ])('rejects invalid input without opening a tab: %j', async (changes) => {
     const context = setup()
     const result = await context.service.handle({ type: 'DRAFT_CREATE', input: { ...input, ...changes } as DraftInput }, ui)
@@ -327,7 +373,7 @@ describe('persistent draft workflow', () => {
     const jobs = await create(context)
     expect(jobs.map((job) => job.status)).toEqual(['queued', 'queued'])
     expect(new Set(jobs.map((job) => job.tabId)).size).toBe(2)
-    expect(jobs[0].assetId).toBe(jobs[1].assetId)
+    expect(jobs[0].assets).toEqual(jobs[1].assets)
     expect(context.assets.size).toBe(1)
     expect(context.navigations).toHaveLength(2)
     const restored = createDraftService({ repository: context.repository, tabs: context.tabs, extensionId: 'extension' })

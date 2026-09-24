@@ -1,6 +1,27 @@
 import type { DraftRepository } from './service'
 import type { DraftJob } from './types'
 
+type LegacyDraftJob = Omit<DraftJob, 'assets' | 'imageHashes' | 'evidence'> & {
+  assetId: string
+  filename: string
+  imageHash?: string
+  evidence?: Omit<NonNullable<DraftJob['evidence']>, 'imageHashes'> & { imageHash: string }
+}
+
+function restoreJob(value: DraftJob | LegacyDraftJob): DraftJob {
+  if ('assets' in value) return value
+  const { assetId, filename, imageHash, evidence, ...job } = value
+  // Preserve checkpoints so upgrading an interrupted job never replays an upload.
+  return {
+    ...job, assets: [{ id: assetId, filename, mimeType: 'image/png' }],
+    ...(imageHash ? { imageHashes: [imageHash] } : {}),
+    ...(evidence ? { evidence: {
+      title: evidence.title, body: evidence.body, imageCount: evidence.imageCount,
+      imageHashes: [evidence.imageHash], storage: evidence.storage, verifiedAt: evidence.verifiedAt,
+    } } : {}),
+  }
+}
+
 const JOBS_KEY = 'stickerDraftJobs'
 const DATABASE_NAME = 'x-sticker-drafts'
 const ASSETS_STORE = 'assets'
@@ -19,7 +40,7 @@ export function createDraftRepository(): DraftRepository {
   return {
     async listJobs() {
       const result = await chrome.storage.local.get(JOBS_KEY)
-      return (result[JOBS_KEY] ?? []) as DraftJob[]
+      return ((result[JOBS_KEY] ?? []) as (DraftJob | LegacyDraftJob)[]).map(restoreJob)
     },
     async saveJobs(jobs) {
       await chrome.storage.local.set({ [JOBS_KEY]: jobs })

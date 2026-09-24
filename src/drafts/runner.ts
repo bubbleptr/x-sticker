@@ -1,5 +1,6 @@
+import { decodeImageAsset, validateImageAssets, type ImageAsset } from '../media'
 import { isVisible, waitForValue } from './dom'
-import { fingerprintImage } from './image'
+import { fingerprintImage, fingerprintSourceImage } from './image'
 import type { DraftEditor, PlatformAdapter } from './platform'
 import type { DraftJob, DraftUpdate } from './types'
 
@@ -37,12 +38,14 @@ function readBody(element: HTMLElement): string {
   return normalizeText(read(element))
 }
 
-function imageReady(editor: DraftEditor): boolean {
-  return editor.imageCount === 1 && !!editor.image?.isConnected && editor.image.complete && editor.image.naturalWidth > 0 && editor.image.naturalHeight > 0
+function imagesReady(editor: DraftEditor, count: number): boolean {
+  return editor.imageCount === count && editor.images.length === count && editor.images.every((image) =>
+    image.isConnected && image.complete && image.naturalWidth > 0 && image.naturalHeight > 0,
+  )
 }
 
 function pendingContent(editor: DraftEditor, job: DraftJob): string | null {
-  if (!imageReady(editor)) return '单张图片'
+  if (!imagesReady(editor, job.assets.length)) return `全部 ${job.assets.length} 张图片`
   if (normalizeText(editor.title.value) !== normalizeText(job.title)) return '完整标题'
   if (editor.titleEcho !== undefined && (editor.titleEcho === null || normalizeText(editor.titleEcho) !== normalizeText(job.title))) return '平台标题预览'
   if (readBody(editor.body) !== normalizeText(job.body)) return '完整正文'
@@ -55,7 +58,7 @@ function pendingContent(editor: DraftEditor, job: DraftJob): string | null {
 
 export async function runDraft(
   job: DraftJob,
-  bytes: number[],
+  images: ImageAsset[],
   adapter: PlatformAdapter,
   report: DraftReporter,
   options: DraftRunOptions = {},
@@ -76,11 +79,11 @@ export async function runDraft(
   inputEvents.forEach((type) => root.addEventListener(type, manualInput, true))
   let step = job.step
   let account = job.account
-  let imageHash = job.imageHash
+  let imageHashes = job.imageHashes
   let blocker: DraftUpdate['blocker']
   const checkExistingDraft = () => {
     if (!adapter.hasExistingDraft()) return
-    if (job.platform === 'douyin' && job.step === 'opening' && !imageHash) {
+    if (job.platform === 'douyin' && job.step === 'opening' && !imageHashes) {
       // This check only runs before assigning the FileList, including after its checkpoint is persisted.
       step = 'opening'
       blocker = 'existing_draft'
@@ -111,13 +114,39 @@ export async function runDraft(
   }
   const publish = async (update: DraftUpdate) => {
     if (update.status !== 'needs_attention') signal.throwIfAborted()
-    const next = { ...update, imageHash: update.imageHash ?? imageHash }
+    const next = { ...update, imageHashes: update.imageHashes ?? imageHashes }
     await report(next)
     step = next.step
-    imageHash = next.imageHash
+    imageHashes = next.imageHashes
     return next
   }
   try {
+    validateImageAssets(images)
+    if (images.length !== job.assets.length || images.some((image, index) =>
+      image.filename !== job.assets[index]!.filename || image.mimeType !== job.assets[index]!.mimeType,
+    )) throw new Error('草稿源图片与任务记录不一致，请手动核对')
+    const sourceHashes: string[] = []
+    for (const image of images) {
+      signal.throwIfAborted()
+      sourceHashes.push(await fingerprintSourceImage(image, root))
+    }
+    if (imageHashes && (imageHashes.length !== sourceHashes.length || imageHashes.some((hash, index) => hash !== sourceHashes[index]))) {
+      throw new Error('源图片与已有核对记录不一致，请手动核对草稿')
+    }
+    const verifyImages = async (editor: DraftEditor) => {
+      if (!imagesReady(editor, images.length)) throw new Error('草稿图片数量或加载状态不符，请手动核对')
+      const imageSources = editor.images.map((image) => ({ src: image.src, currentSrc: image.currentSrc }))
+      for (const [index, image] of editor.images.entries()) {
+        if (await fingerprintImage(image) !== sourceHashes[index]) {
+          throw new Error(`第 ${index + 1} 张图片与源图不一致或平台仅提供缩略图，无法自动确认内容和顺序，请手动核对草稿`)
+        }
+        checkAccount()
+      }
+      const current = adapter.getEditor()
+      if (!current || !imagesReady(current, images.length) || current.images.some((image, index) =>
+        image !== editor.images[index] || image.src !== imageSources[index]!.src || image.currentSrc !== imageSources[index]!.currentSrc,
+      )) throw new Error('核对过程中图片或顺序发生变化，请手动检查草稿')
+    }
     checkAccount(false)
     await publish({ status: 'running', step, account, message: '正在检查创作者中心' })
     if (step === 'opening') {
@@ -135,7 +164,9 @@ export async function runDraft(
         throw new Error('上传页面内容已经变化，已暂停以保留当前内容')
       }
       const transfer = new DataTransfer()
-      transfer.items.add(new File([Uint8Array.from(bytes)], job.filename, { type: 'image/png' }))
+      for (const image of images) {
+        transfer.items.add(new File([Uint8Array.from(decodeImageAsset(image))], image.filename, { type: image.mimeType }))
+      }
       input.files = transfer.files
       input.dispatchEvent(new Event('change', { bubbles: true }))
       input.dispatchEvent(new Event('input', { bubbles: true }))
@@ -143,20 +174,15 @@ export async function runDraft(
     if (step === 'uploading') {
       const uploaded = await waitForValue(() => {
         const editor = adapter.getEditor()
-        if (editor && editor.imageCount > 1) throw new Error('图片数量不是一张，请手动核对后继续')
-        return editor && imageReady(editor) ? editor : null
-      }, '已上传的单张图片（不会重复上传）', options.timeout, signal)
+        if (editor && editor.imageCount > images.length) throw new Error('草稿图片数量与本次图片不一致，请手动核对后继续')
+        return editor && imagesReady(editor, images.length) ? editor : null
+      }, '已上传的全部图片（不会重复上传）', options.timeout, signal)
       checkAccount()
-      const uploadedHash = await fingerprintImage(uploaded.image)
-      if (imageHash && uploadedHash !== imageHash) throw new Error('图片与本次贴图不一致，请手动核对')
+      await verifyImages(uploaded)
       checkAccount()
-      await publish({ status: 'running', step: 'filling', imageHash: uploadedHash, account, message: '正在填写标题和正文' })
+      await publish({ status: 'running', step: 'filling', imageHashes: sourceHashes, account, message: '正在填写标题和正文' })
     }
-    if (!imageHash) throw new Error('缺少本次图片的核对记录，请手动检查草稿')
-    const verifyImage = async (editor: DraftEditor) => {
-      if (await fingerprintImage(editor.image) !== imageHash) throw new Error('草稿图片与本次贴图不一致，请手动核对')
-      checkAccount()
-    }
+    if (!imageHashes) throw new Error('缺少本次图片的核对记录，请手动检查草稿')
     const waitForContent = (saved: boolean) => {
       let pending = '贴图内容'
       return waitForValue(() => {
@@ -171,12 +197,12 @@ export async function runDraft(
     if (step !== 'saving' && step !== 'verifying') {
       const editor = await waitForValue(() => {
         const current = adapter.getEditor()
-        if (current && current.imageCount > 1) throw new Error('图片数量不是一张，请手动核对后继续')
-        return current && imageReady(current) ? current : null
-      }, '单图编辑器', options.timeout, signal)
+        if (current && current.imageCount > images.length) throw new Error('草稿图片数量与本次图片不一致，请手动核对后继续')
+        return current && imagesReady(current, images.length) ? current : null
+      }, '全部图片编辑器', options.timeout, signal)
       checkAccount()
-      if (editor.imageCount !== 1) throw new Error('图片数量不是一张，请手动核对后继续')
-      await verifyImage(editor)
+      if (editor.imageCount !== images.length) throw new Error('草稿图片数量与本次图片不一致，请手动核对后继续')
+      await verifyImages(editor)
       const title = normalizeText(editor.title.value)
       const body = readBody(editor.body)
       if ((title && title !== normalizeText(job.title)) || (body && body !== normalizeText(job.body))) {
@@ -202,10 +228,11 @@ export async function runDraft(
         }
       }
       writing = false
-      const filled = await waitForContent(false)
-      await verifyImage(filled)
+      await waitForContent(false)
       checkAccount()
       await publish({ status: 'running', step: 'saving', account, message: '正在保存草稿' })
+      const readyToSave = await waitForContent(false)
+      await verifyImages(readyToSave)
       checkAccount()
       await adapter.saveDraft(signal)
     }
@@ -214,11 +241,11 @@ export async function runDraft(
     signal.throwIfAborted()
     await adapter.reopenDraft(job, signal)
     const reopened = await waitForContent(true)
-    await verifyImage(reopened)
+    await verifyImages(reopened)
     checkAccount()
     return await publish({
       status: 'saved', step: 'verifying', account, message: '草稿已保存并核对，请由你手动发布',
-      evidence: { title: job.title, body: job.body, imageCount: 1, imageHash, storage: adapter.storage, verifiedAt: (options.now ?? Date.now)() },
+      evidence: { title: job.title, body: job.body, imageCount: images.length, imageHashes, storage: adapter.storage, verifiedAt: (options.now ?? Date.now)() },
     })
   } catch (error) {
     return await publish({ status: 'needs_attention', step, account, blocker, message: error instanceof Error ? error.message : '自动操作已暂停，请手动接手' })

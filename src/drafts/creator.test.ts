@@ -10,8 +10,8 @@ import { runDraft } from './runner'
 import { startCreatorDrafts } from './creator'
 
 const job: DraftJob = {
-  id: 'job-1', assetId: 'asset-1', platform: 'xiaohongshu', title: '标题', body: '正文',
-  sourceUrl: 'https://x.com/user/status/1', filename: 'sticker.png', status: 'needs_attention',
+  id: 'job-1', assets: [{ id: 'asset-1', filename: 'sticker.png', mimeType: 'image/png' }], platform: 'xiaohongshu', title: '标题', body: '正文',
+  sourceUrl: 'https://x.com/user/status/1', status: 'needs_attention',
   step: 'uploading', message: '页面重新加载，请核对后继续', createdAt: 1, updatedAt: 1,
 }
 const windows: Window[] = []
@@ -47,7 +47,7 @@ describe('creator entry', () => {
     const before = root.documentElement.outerHTML
     let inspections = 0
     const send = vi.fn(async (message: DraftMessage): Promise<DraftResponse> => message.type === 'DRAFT_CLAIM'
-      ? { ok: false, error: '任务已经领取' } : { ok: true, job: { ...job, status: ++inspections === 1 ? 'needs_attention' : 'running' }, bytes: [1, 2, 3] })
+      ? { ok: false, error: '任务已经领取' } : { ok: true, job: { ...job, status: ++inspections === 1 ? 'needs_attention' : 'running' }, images: [{ filename: 'sticker.png', mimeType: 'image/png', dataUrl: 'data:image/png;base64,AQID' }] })
     await startCreatorDrafts(root, send, runtime)
     expect(root.documentElement.outerHTML).toBe(before)
     expect(runDraft).not.toHaveBeenCalled()
@@ -77,7 +77,7 @@ describe('creator entry', () => {
         pauseWasPersisted()
         return new Promise((resolve) => { acknowledgePause = resolve })
       }
-      return { ok: true, job: { ...job, status: 'running' }, bytes: [1, 2, 3] }
+      return { ok: true, job: { ...job, status: 'running' }, images: [{ filename: 'sticker.png', mimeType: 'image/png', dataUrl: 'data:image/png;base64,AQID' }] }
     })
     const startup = startCreatorDrafts(root, send, runtime)
     await persisted
@@ -94,9 +94,9 @@ describe('creator entry', () => {
     const { root, runtime } = setup()
     let claim!: (response: DraftResponse) => void
     const send = vi.fn(async (message: DraftMessage): Promise<DraftResponse> => message.type === 'DRAFT_CLAIM'
-      ? new Promise((resolve) => { claim = resolve }) : { ok: true, job: { ...job, status: 'needs_attention' }, bytes: [1, 2, 3] })
+      ? new Promise((resolve) => { claim = resolve }) : { ok: true, job: { ...job, status: 'needs_attention' }, images: [{ filename: 'sticker.png', mimeType: 'image/png', dataUrl: 'data:image/png;base64,AQID' }] })
     const startup = startCreatorDrafts(root, send, runtime)
-    claim({ ok: true, job: { ...job, status: 'running' }, bytes: [1, 2, 3] })
+    claim({ ok: true, job: { ...job, status: 'running' }, images: [{ filename: 'sticker.png', mimeType: 'image/png', dataUrl: 'data:image/png;base64,AQID' }] })
     await startup
     expect(runDraft).not.toHaveBeenCalled()
     expect(root.querySelector('#x-sticker-draft-panel')).toBeNull()
@@ -116,11 +116,11 @@ describe('creator entry', () => {
     })
     const send = vi.fn(async (message: DraftMessage): Promise<DraftResponse> => message.type === 'DRAFT_CLAIM'
       ? new Promise((resolve) => { claim = resolve }) : message.type === 'DRAFT_INSPECT'
-        ? { ok: true, job: { ...job, status: 'running' }, bytes: [1, 2, 3] } : { ok: true })
+        ? { ok: true, job: { ...job, status: 'running' }, images: [{ filename: 'sticker.png', mimeType: 'image/png', dataUrl: 'data:image/png;base64,AQID' }] } : { ok: true })
     const startup = startCreatorDrafts(root, send, runtime)
     await startCreatorDrafts(root, send, runtime)
     expect(send).toHaveBeenCalledOnce()
-    claim({ ok: true, job: { ...job, status: 'running' }, bytes: [1, 2, 3] })
+    claim({ ok: true, job: { ...job, status: 'running' }, images: [{ filename: 'sticker.png', mimeType: 'image/png', dataUrl: 'data:image/png;base64,AQID' }] })
     await vi.waitFor(() => expect(runDraft).toHaveBeenCalledOnce())
     expect(control('stop')).toEqual({ ok: true })
     expect(vi.mocked(runDraft).mock.calls[0][4]?.signal?.aborted).toBe(true)

@@ -49,9 +49,9 @@ it.each([
       let savedBody = ''
       let savedBeforeModelSync = false
       const job: DraftJob = {
-        id: 'douyin-browser-job', assetId: 'douyin-browser-image', platform: 'douyin',
+        id: 'douyin-browser-job', assets: [{ id: 'douyin-browser-image', filename: 'local-card.png', mimeType: 'image/png' }, { id: 'photo', filename: 'photo.jpg', mimeType: 'image/jpeg' }], platform: 'douyin',
         title: '正文保存测试', body: '第一段  保留两个空格\n\n第二段 👩‍💻\n第三段',
-        sourceUrl: 'https://x.com/example/status/1', filename: 'local-card.png',
+        sourceUrl: 'https://x.com/example/status/1',
         status: 'running', step: 'opening', message: '', createdAt: 1, updatedAt: 1,
       }
       const canvas = document.createElement('canvas')
@@ -65,7 +65,15 @@ it.each([
       const original = await new Promise<Blob>((resolve, reject) => canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error('PNG fixture generation failed')), 'image/png'))
       const bytes = Array.from(new Uint8Array(await original.arrayBuffer()))
 
-      function mountEditor(blob: Blob, titleValue = '', bodyValue = ''): void {
+      context.fillStyle = '#f59e0b'
+      context.fillRect(0, 0, canvas.width, canvas.height)
+      const photo = await new Promise<Blob>((resolve) => canvas.toBlob((blob) => resolve(blob!), 'image/jpeg'))
+      const images = await Promise.all([original, photo].map(async (blob, index) => ({
+        filename: job.assets[index]!.filename, mimeType: job.assets[index]!.mimeType,
+        dataUrl: `data:${blob.type};base64,${btoa(String.fromCharCode(...new Uint8Array(await blob.arrayBuffer())))}`,
+      })))
+
+      function mountEditor(blobs: Blob[], titleValue = '', bodyValue = ''): void {
         const container = document.createElement('section')
         const title = document.createElement('input')
         title.placeholder = '添加作品标题'
@@ -121,13 +129,16 @@ it.each([
             renderBody()
           })
         })
-        const imageContainer = document.createElement('div')
-        imageContainer.className = 'img-fixture'
-        const image = document.createElement('img')
-        image.src = URL.createObjectURL(blob)
-        imageContainer.append(image)
+        const previews = blobs.map((blob) => {
+          const imageContainer = document.createElement('div')
+          imageContainer.className = 'img-fixture'
+          const image = document.createElement('img')
+          image.src = URL.createObjectURL(blob)
+          imageContainer.append(image)
+          return imageContainer
+        })
         const imageCount = document.createElement('div')
-        imageCount.textContent = '已添加 1 张图片'
+        imageCount.textContent = '已添加 2 张图片'
         const save = document.createElement('button')
         save.textContent = '暂存离开'
         const publish = document.createElement('button')
@@ -144,33 +155,34 @@ it.each([
           resume.textContent = '继续编辑'
           resume.addEventListener('click', () => {
             reopenClicks++
-            mountEditor(new Blob([blob], { type: 'image/png' }), savedTitle, savedBody)
+            mountEditor(blobs.map((blob) => new Blob([blob], { type: blob.type })), savedTitle, savedBody)
           })
           fixture.replaceChildren(prompt, resume)
         })
-        container.append(title, richEditor, imageContainer, imageCount, save, publish)
+        container.append(title, richEditor, ...previews, imageCount, save, publish)
         fixture.replaceChildren(container)
       }
 
       const upload = document.createElement('input')
       upload.type = 'file'
-      upload.accept = 'image/png'
+      upload.accept = 'image/png,image/jpeg'
+      upload.multiple = true
       upload.addEventListener('change', () => {
-        const file = upload.files?.[0]
-        if (!file) throw new Error('Native FileList did not receive the PNG')
-        uploads.push({ filename: file.name, mime: file.type, byteLength: file.size })
-        mountEditor(file)
+        const files = Array.from(upload.files ?? [])
+        if (files.length !== 2) throw new Error('Native FileList did not receive the cover and photo')
+        for (const file of files) uploads.push({ filename: file.name, mime: file.type, byteLength: file.size })
+        mountEditor(files)
       })
       fixture.append(upload)
       const adapter = createDouyinAdapter(document)
-      const outcome = await runDraft(job, bytes, adapter, (update) => { updates.push(update) }, { timeout: 1200, now: () => 100 })
+      const outcome = await runDraft(job, images, adapter, (update) => { updates.push(update) }, { timeout: 1200, now: () => 100 })
       return {
-        outcome, updates, uploads, sourceByteLength: bytes.length, bodyInputs, pastedTexts,
+        outcome, updates, uploads, sourceByteLength: bytes.length, photoByteLength: photo.size, bodyInputs, pastedTexts,
         saveClicks, reopenClicks, publishClicks, savedTitle, savedBody, savedBeforeModelSync,
         expectedTitle: job.title, expectedBody: job.body, finalBody: adapter.getEditor()?.body.innerText,
       }
     }, { rejectPaste, missingCounter })
-    expect(result.uploads).toEqual([{ filename: 'local-card.png', mime: 'image/png', byteLength: result.sourceByteLength }])
+    expect(result.uploads).toEqual([{ filename: 'local-card.png', mime: 'image/png', byteLength: result.sourceByteLength }, { filename: 'photo.jpg', mime: 'image/jpeg', byteLength: result.photoByteLength }])
     expect(result.publishClicks).toBe(0)
     if (rejectPaste || missingCounter) {
       expect(result.saveClicks, JSON.stringify(result)).toBe(0)
@@ -186,7 +198,7 @@ it.each([
       expect(result.reopenClicks).toBe(1)
       expect(result.savedTitle).toBe(result.expectedTitle)
       expect(result.outcome.status, JSON.stringify(result)).toBe('saved')
-      expect(result.outcome.evidence).toMatchObject({ title: result.expectedTitle, body: result.expectedBody, imageCount: 1, storage: 'unknown', verifiedAt: 100 })
+      expect(result.outcome.evidence).toMatchObject({ title: result.expectedTitle, body: result.expectedBody, imageCount: 2, storage: 'unknown', verifiedAt: 100 })
     }
   } finally {
     await browser?.close()

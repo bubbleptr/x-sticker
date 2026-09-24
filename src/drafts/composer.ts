@@ -1,10 +1,10 @@
 import type { PostText } from '../types'
+import type { ImageAsset } from '../media'
 import { DRAFT_TARGETS, type DraftJob, type DraftMessage, type DraftPlatform, type DraftResponse } from './types'
 
 interface DraftSnapshot {
   post: Pick<PostText, 'text' | 'postUrl'>
-  bytes: Uint8Array | null
-  filename: string
+  images: ImageAsset[] | null
 }
 
 interface DraftComposerOptions {
@@ -171,10 +171,10 @@ export function createDraftComposer(container: HTMLElement, options: DraftCompos
   }
 
   function syncSubmit(): void {
-    submitButton.disabled = !snapshot?.bytes?.length || submitting || submitted
+    submitButton.disabled = !snapshot?.images?.length || submitting || submitted
     submitButton.textContent = submitting ? '创建中…' : submitted ? '已加入同步' : '同步到草稿'
     form.setAttribute('aria-busy', String(submitting))
-    message.hidden = Boolean(snapshot?.bytes?.length)
+    message.hidden = Boolean(snapshot?.images?.length)
   }
 
   function validateText(): boolean {
@@ -380,7 +380,7 @@ export function createDraftComposer(container: HTMLElement, options: DraftCompos
   })
   form.addEventListener('submit', async (event) => {
     event.preventDefault()
-    if (!snapshot?.bytes?.length || submitting || submitted) return
+    if (!snapshot?.images?.length || submitting || submitted) return
     const platforms = platformInputs.filter((input) => input.checked).map((input) => input.value as DraftPlatform)
     if (!platforms.length) {
       setError(platformError, '至少选择一个平台')
@@ -397,7 +397,7 @@ export function createDraftComposer(container: HTMLElement, options: DraftCompos
     const submittedRevision = revision
     const input = {
       platforms, title: titleInput.value, body: bodyInput.value, sourceUrl: snapshot.post.postUrl,
-      filename: snapshot.filename, bytes: Array.from(snapshot.bytes),
+      images: snapshot.images.map((image) => ({ ...image })),
     }
     submitting = true
     creationError = ''
@@ -445,11 +445,16 @@ export function createDraftComposer(container: HTMLElement, options: DraftCompos
     setSnapshot(next: DraftSnapshot | null): void {
       if (destroyed) return
       if (next?.post.postUrl !== snapshot?.post.postUrl) {
-        titleInput.value = next?.post.text.split(/\r?\n/).find((line) => line.trim()) ?? ''
+        titleInput.value = next?.post.text.split(/\r?\n/).find((line) => line.trim()) ?? (next ? '图片分享' : '')
         bodyInput.value = next?.post.text ?? ''
       }
-      if (next?.bytes !== snapshot?.bytes || next?.post.postUrl !== snapshot?.post.postUrl) changed()
-      snapshot = next
+      const sameImages = next?.images === snapshot?.images || Boolean(next?.images && snapshot?.images &&
+        next.images.length === snapshot.images.length && next.images.every((image, index) => {
+          const previous = snapshot!.images![index]!
+          return image.dataUrl === previous.dataUrl && image.filename === previous.filename && image.mimeType === previous.mimeType
+        }))
+      if (!sameImages || next?.post.postUrl !== snapshot?.post.postUrl) changed()
+      snapshot = next ? { post: { ...next.post }, images: next.images?.map((image) => ({ ...image })) ?? null } : null
       titleInput.disabled = !snapshot
       bodyInput.disabled = !snapshot
       syncSubmit()

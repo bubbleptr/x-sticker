@@ -5,9 +5,10 @@ import { expect, it } from 'vitest'
 import type { DraftJob, DraftUpdate } from './types'
 
 it.each([
-  { name: 'verifies matching pixels through upload, native rich-text editing, save and reopen', replaceImage: false, status: 'saved' },
-  { name: 'refuses to verify a reopened draft with the same text but different pixels', replaceImage: true, status: 'needs_attention' },
-])('$name', async ({ replaceImage, status }) => {
+  { name: 'verifies a cover and photo in order through one native FileList, save and reopen', replaceImage: false, reorder: false, status: 'saved' },
+  { name: 'refuses to verify a reopened draft with the same text but different pixels', replaceImage: true, reorder: false, status: 'needs_attention' },
+  { name: 'refuses to verify a reordered draft with the same image count', replaceImage: false, reorder: true, status: 'needs_attention' },
+])('$name', async ({ replaceImage, reorder, status }) => {
   const server = await createServer({
     configFile: false, server: { host: '127.0.0.1', port: 0 }, logLevel: 'silent',
     plugins: [{ name: 'draft-runner-browser-test', configureServer(server) {
@@ -29,7 +30,7 @@ it.each([
       window.draftRunnerModule = await import('/src/drafts/runner.ts')
       window.draftAdapterModule = await import('/src/drafts/xiaohongshu.ts')
     })()`)
-    const result = await page.evaluate(async (replaceImage) => {
+    const result = await page.evaluate(async ({ replaceImage, reorder }) => {
       const fixtureWindow = window as typeof window & {
         draftRunnerModule: typeof import('./runner')
         draftAdapterModule: typeof import('./xiaohongshu')
@@ -50,9 +51,9 @@ it.each([
       let savedTitle = ''
       let savedBeforeTitleSync = false
       const job: DraftJob = {
-        id: 'browser-job', assetId: 'browser-image', platform: 'xiaohongshu',
+        id: 'browser-job', assets: [{ id: 'browser-image', filename: 'local-card.png', mimeType: 'image/png' }, { id: 'photo-image', filename: 'photo.png', mimeType: 'image/png' }], platform: 'xiaohongshu',
         title: '浏览器原生草稿测试', body: '第一段  保留两个空格\n\n第二段 👩‍💻\n第三段',
-        sourceUrl: 'https://x.com/example/status/1', filename: 'local-card.png',
+        sourceUrl: 'https://x.com/example/status/1',
         status: 'running', step: 'opening', message: '', createdAt: 1, updatedAt: 1,
       }
 
@@ -68,10 +69,16 @@ it.each([
         return new Promise((resolve, reject) => canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error('PNG fixture generation failed')), 'image/png'))
       }
       const original = await makePng('#0f766e')
+      const photo = await makePng('#f59e0b')
       const replacement = await makePng('#b91c1c')
       const bytes = Array.from(new Uint8Array(await original.arrayBuffer()))
 
-      function mountEditor(blob: Blob, titleValue = '', bodyHtml = '<p><br></p>'): void {
+      const images = await Promise.all([original, photo].map(async (blob, index) => ({
+        filename: job.assets[index]!.filename, mimeType: 'image/png' as const,
+        dataUrl: `data:image/png;base64,${btoa(String.fromCharCode(...new Uint8Array(await blob.arrayBuffer())))}`,
+      })))
+
+      function mountEditor(blobs: Blob[], titleValue = '', bodyHtml = '<p><br></p>'): void {
         const container = document.createElement('section')
         container.className = 'publish-page-content'
         const title = document.createElement('input')
@@ -99,10 +106,13 @@ it.each([
         body.style.whiteSpace = 'pre-wrap'
         body.innerHTML = bodyHtml
         body.addEventListener('input', (event) => { bodyInputs.push({ trusted: event.isTrusted, inputType: (event as InputEvent).inputType }) })
-        const image = document.createElement('img')
-        image.className = 'img preview'
-        image.src = URL.createObjectURL(blob)
-        imageUrls.push(image.src)
+        const previews = blobs.map((blob) => {
+          const image = document.createElement('img')
+          image.className = 'img preview'
+          image.src = URL.createObjectURL(blob)
+          imageUrls.push(image.src)
+          return image
+        })
         const controls = document.createElement('xhs-publish-btn')
         controls.setAttribute('is-save-draft', 'true')
         controls.setAttribute('save-text', '暂存离开')
@@ -131,55 +141,59 @@ it.each([
           edit.textContent = '编辑'
           edit.addEventListener('click', () => {
             reopenClicks++
-            mountEditor(replaceImage ? replacement : new Blob([blob], { type: 'image/png' }), savedTitle, savedHtml)
+            const saved = blobs.map((blob) => new Blob([blob], { type: 'image/png' }))
+            if (replaceImage) saved[1] = replacement
+            if (reorder) saved.reverse()
+            mountEditor(saved, savedTitle, savedHtml)
           })
           card.append(label, edit)
           list.append(card)
           fixture.replaceChildren(list)
         })
         shadow.append(save, publish)
-        container.append(title, body, image, controls)
+        container.append(title, body, ...previews, controls)
         fixture.replaceChildren(container, preview)
       }
 
       const upload = document.createElement('input')
       upload.type = 'file'
       upload.accept = 'image/png'
+      upload.multiple = true
       upload.className = 'upload-input'
       upload.addEventListener('change', () => {
-        const file = upload.files?.[0]
-        if (!file) throw new Error('Native FileList did not receive the PNG')
-        uploads.push({ filename: file.name, mime: file.type, byteLength: file.size })
-        mountEditor(file)
+        const files = Array.from(upload.files ?? [])
+        if (files.length !== 2) throw new Error('Native FileList did not receive all images')
+        for (const file of files) uploads.push({ filename: file.name, mime: file.type, byteLength: file.size })
+        mountEditor(files)
       })
       fixture.append(upload)
       const adapter = createXiaohongshuAdapter(document, (host) => testClosedShadowMap.get(host) ?? null)
-      const outcome = await runDraft(job, bytes, adapter, (update) => { updates.push(update) }, { timeout: 1500, now: () => 100 })
+      const outcome = await runDraft(job, images, adapter, (update) => { updates.push(update) }, { timeout: 1500, now: () => 100 })
       return {
-        outcome, updates, uploads, sourceByteLength: bytes.length, titleInputs, bodyInputs,
+        outcome, updates, uploads, sourceByteLength: bytes.length, photoByteLength: photo.size, titleInputs, bodyInputs,
         saveClicks, publishClicks, reopenClicks, savedHtml, savedTitle, imageUrls, savedBeforeTitleSync,
         finalTitle: adapter.getEditor()?.title.value,
         finalBody: adapter.getEditor()?.body.innerText,
       }
-    }, replaceImage)
-    expect(result.uploads).toEqual([{ filename: 'local-card.png', mime: 'image/png', byteLength: result.sourceByteLength }])
+    }, { replaceImage, reorder })
+    expect(result.uploads).toEqual([{ filename: 'local-card.png', mime: 'image/png', byteLength: result.sourceByteLength }, { filename: 'photo.png', mime: 'image/png', byteLength: result.photoByteLength }])
     expect(result.titleInputs).toEqual(['浏览器原生草稿测试'])
     expect(result.bodyInputs.some((event) => event.trusted && event.inputType === 'insertText')).toBe(true)
     expect(result.savedBeforeTitleSync).toBe(false)
     expect(result.saveClicks).toBe(1)
     expect(result.reopenClicks).toBe(1)
     expect(result.publishClicks).toBe(0)
-    expect(result.imageUrls).toHaveLength(2)
+    expect(result.imageUrls).toHaveLength(4)
     expect(result.imageUrls[0]).not.toBe(result.imageUrls[1])
     expect(result.savedHtml).toContain('👩‍💻')
     expect(result.finalTitle).toBe('浏览器原生草稿测试')
     expect(result.outcome.status, JSON.stringify({ outcome: result.outcome, savedHtml: result.savedHtml, finalBody: result.finalBody })).toBe(status)
-    if (replaceImage) {
+    if (replaceImage || reorder) {
       expect(result.updates.some((update) => update.status === 'saved')).toBe(false)
       expect(result.outcome.evidence).toBeUndefined()
       expect(result.outcome.message).toMatch(/图片.*不一致/)
     } else {
-      expect(result.outcome.evidence).toMatchObject({ title: '浏览器原生草稿测试', body: '第一段  保留两个空格\n\n第二段 👩‍💻\n第三段', imageCount: 1, storage: 'browser', verifiedAt: 100 })
+      expect(result.outcome.evidence).toMatchObject({ title: '浏览器原生草稿测试', body: '第一段  保留两个空格\n\n第二段 👩‍💻\n第三段', imageCount: 2, storage: 'browser', verifiedAt: 100 })
     }
   } finally {
     await browser?.close()

@@ -18,10 +18,11 @@ export function createXiaohongshuAdapter(
     if (!title || !body) return null
     const container = title.closest('.publish-page-content')
     if (!container?.contains(body)) throw new Error('无法确认当前图文编辑区域，请手动接手')
-    const images = Array.from(container.querySelectorAll<HTMLImageElement>('img.img.preview')).filter(isVisible)
-    const image = images.length === 1 && images[0]!.complete && images[0]!.naturalWidth > 0 ? images[0]! : null
+    const images = Array.from(container.querySelectorAll<HTMLImageElement>('img.img.preview')).filter((image) =>
+      isVisible(image) && !!(image.currentSrc || image.getAttribute('src')),
+    )
     const titleEcho = unique<HTMLElement>('.publish-page-preview .image-preview .title', '笔记标题预览')?.textContent ?? null
-    return { title, body, imageCount: images.length, image, titleEcho }
+    return { title, body, imageCount: images.length, images, titleEcho }
   }
   return {
     storage: 'browser',

@@ -25,7 +25,7 @@ export async function startCreatorDrafts(
   } catch { return }
   if (!response.ok || !('job' in response)) return
   let job: DraftJob = response.job
-  let bytes = response.bytes
+  let images = response.images
   let active = false
   let controller: AbortController | undefined
 
@@ -43,11 +43,11 @@ export async function startCreatorDrafts(
       if (!current.ok) throw new Error(current.error)
       if (!('job' in current) || current.job.id !== job.id) throw new Error('没有找到原草稿任务，请手动检查')
       job = current.job
-      bytes = current.bytes
+      images = current.images
       if (job.status !== 'running') return
       controller.signal.throwIfAborted()
       const adapter = platform === 'xiaohongshu' ? createXiaohongshuAdapter(root) : createDouyinAdapter(root)
-      await runDraft(job, bytes, adapter, report, { document: root, signal: controller.signal })
+      await runDraft(job, images, adapter, report, { document: root, signal: controller.signal })
     } catch (error) {
       const update: DraftUpdate = { status: 'needs_attention', step: job.step, message: error instanceof Error ? error.message : '连接中断，请重新加载扩展后检查草稿' }
       job = { ...job, ...update }

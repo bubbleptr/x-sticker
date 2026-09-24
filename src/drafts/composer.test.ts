@@ -7,10 +7,12 @@ const post = {
   text: '完整的第一行\n第二行保留为正文。',
   postUrl: 'https://x.com/example/status/123',
 }
-const snapshot = { post, bytes: new Uint8Array([137, 80, 78, 71]), filename: 'sticker.png' }
+const image = { filename: 'sticker.png', mimeType: 'image/png' as const, dataUrl: 'data:image/png;base64,iVBORw==' }
+const replacement = { ...image, dataUrl: 'data:image/png;base64,BAUG' }
+const snapshot = { post, images: [image] }
 const job: DraftJob = {
-  id: 'job-1', assetId: 'asset-1', platform: 'xiaohongshu', title: '待处理草稿', body: post.text,
-  sourceUrl: post.postUrl, filename: 'sticker.png', createdAt: 1, updatedAt: 2,
+  id: 'job-1', assets: [{ id: 'asset-1', filename: 'sticker.png', mimeType: 'image/png' }], platform: 'xiaohongshu', title: '待处理草稿', body: post.text,
+  sourceUrl: post.postUrl, createdAt: 1, updatedAt: 2,
   status: 'needs_attention', step: 'saving', message: '没有找到存草稿按钮，请在后台接手。', tabId: 42,
 }
 let listeners: Set<(changes: Record<string, unknown>, area: string) => void>
@@ -48,6 +50,26 @@ afterEach(() => {
 })
 
 describe('draft composer', () => {
+  it('submits an immutable ordered image set and permits a changed selection after the older request completes', async () => {
+    let finish!: (response: DraftResponse) => void
+    sendMessage.mockImplementation(async (message) => message.type === 'DRAFT_CREATE'
+      ? new Promise((resolve) => { finish = resolve }) : { ok: true, jobs: [] })
+    const cover = { filename: '01-cover.png', mimeType: 'image/png' as const, dataUrl: 'data:image/png;base64,AQID' }
+    const photo = { filename: '02-photo.jpg', mimeType: 'image/jpeg' as const, dataUrl: 'data:image/jpeg;base64,BAUG' }
+    composer.setSnapshot({ post, images: [cover, photo] })
+    expect(button().disabled).toBe(false)
+    submit()
+    composer.setSnapshot({ post, images: [cover] })
+    photo.filename = 'changed.jpg'
+    const request = sendMessage.mock.calls.find(([message]) => message.type === 'DRAFT_CREATE')![0]
+    expect(request).toMatchObject({ input: { images: [{ filename: '01-cover.png' }, { filename: '02-photo.jpg' }] } })
+    finish({ ok: true, jobs: [job] })
+    await vi.waitFor(() => expect(button().disabled).toBe(false))
+    submit()
+    expect(sendMessage.mock.calls.filter(([message]) => message.type === 'DRAFT_CREATE')[1]![0]).toMatchObject({ input: { images: [cover] } })
+    finish({ ok: true, jobs: [job] })
+  })
+
   it('restores platform preferences without replacing edited text or submitting a draft', () => {
     composer.setSnapshot(snapshot)
     const title = container.querySelector<HTMLInputElement>('input[name=title]')!
@@ -71,7 +93,7 @@ describe('draft composer', () => {
     expect(button().disabled).toBe(false)
     expect(sendMessage.mock.calls.some(([message]) => message.type === 'DRAFT_CREATE')).toBe(false)
 
-    composer.setSnapshot({ ...snapshot, bytes: null })
+    composer.setSnapshot({ ...snapshot, images: null })
     composer.setPlatforms(['xiaohongshu'])
     expect(button().disabled).toBe(true)
   })
@@ -122,7 +144,7 @@ describe('draft composer', () => {
     expect(creates).toHaveLength(1)
     expect(creates[0]![0]).toEqual({ type: 'DRAFT_CREATE', input: {
       platforms: ['xiaohongshu', 'douyin'], title: title.value, body: body.value,
-      sourceUrl: post.postUrl, filename: snapshot.filename, bytes: Array.from(snapshot.bytes),
+      sourceUrl: post.postUrl, images: snapshot.images,
     } })
     finish({ ok: true, jobs: [job] })
     await vi.waitFor(() => expect(button().textContent).not.toContain('创建中'))
@@ -136,15 +158,15 @@ describe('draft composer', () => {
     const body = container.querySelector<HTMLTextAreaElement>('textarea[name="body"]')!
     body.value = '我的文案'
     body.dispatchEvent(new Event('input', { bubbles: true }))
-    composer.setSnapshot({ ...snapshot, bytes: null })
+    composer.setSnapshot({ ...snapshot, images: null })
     expect(button().disabled).toBe(true)
     submit()
     expect(sendMessage.mock.calls.some(([message]) => message.type === 'DRAFT_CREATE')).toBe(false)
-    composer.setSnapshot({ ...snapshot, bytes: new Uint8Array([4, 5, 6]) })
+    composer.setSnapshot({ ...snapshot, images: [replacement] })
     expect(body.value).toBe('我的文案')
     expect(button().disabled).toBe(false)
     submit()
-    expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({ input: expect.objectContaining({ bytes: [4, 5, 6], body: '我的文案' }) }))
+    expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({ input: expect.objectContaining({ images: [replacement], body: '我的文案' }) }))
   })
 
   it('keeps an overlong title and body intact and requires an edit before sending', () => {
@@ -208,7 +230,7 @@ describe('draft composer', () => {
     const open = Array.from(progress.querySelectorAll('button')).find((item) => item.textContent === '打开后台接手')!
     open.click()
     await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledWith({ type: 'DRAFT_OPEN', id: job.id }))
-    sendMessage.mockImplementation(async () => ({ ok: true, jobs: [{ ...job, status: 'saved', message: '已重新打开核对', evidence: { title: job.title, body: job.body, imageCount: 1, imageHash: 'test-image-hash', storage: 'browser', verifiedAt: 3 } }] }))
+    sendMessage.mockImplementation(async () => ({ ok: true, jobs: [{ ...job, status: 'saved', message: '已重新打开核对', evidence: { title: job.title, body: job.body, imageCount: 1, imageHashes: ['test-image-hash'], storage: 'browser', verifiedAt: 3 } }] }))
     for (const listener of listeners) listener({}, 'local')
     await vi.waitFor(() => expect(progress.textContent).toContain('此浏览器草稿箱'))
     composer.destroy()
@@ -254,8 +276,8 @@ describe('draft composer', () => {
     expect(title.value).toBe('本次标题')
     expect(body.value).toBe('本次正文')
     expect(button().disabled).toBe(true)
-    composer.setSnapshot({ ...snapshot, bytes: null })
-    composer.setSnapshot({ ...snapshot, bytes: new Uint8Array([1, 2, 3]) })
+    composer.setSnapshot({ ...snapshot, images: null })
+    composer.setSnapshot({ ...snapshot, images: [replacement] })
     finish({ ok: true, jobs: [job] })
     await vi.waitFor(() => expect(progress.textContent).toContain(job.message))
     expect(onViewChange).toHaveBeenLastCalledWith('editor')
@@ -264,7 +286,7 @@ describe('draft composer', () => {
     progress.querySelector<HTMLButtonElement>('.draft-back')!.click()
     const creates = sendMessage.mock.calls.filter(([message]) => message.type === 'DRAFT_CREATE')
     expect(creates).toHaveLength(1)
-    expect(creates[0]![0]).toEqual(expect.objectContaining({ input: expect.objectContaining({ title: '本次标题', body: '本次正文', bytes: Array.from(snapshot.bytes) }) }))
+    expect(creates[0]![0]).toEqual(expect.objectContaining({ input: expect.objectContaining({ title: '本次标题', body: '本次正文', images: snapshot.images }) }))
   })
 
   it('does not let an older task-list response erase a newly created job or newer saved evidence', async () => {
@@ -279,7 +301,7 @@ describe('draft composer', () => {
     finishList({ ok: true, jobs: [] })
     await Promise.resolve()
     expect(progress.textContent).toContain(job.message)
-    const saved = { ...job, status: 'saved' as const, updatedAt: 10, message: '已重新打开核对', evidence: { title: job.title, body: job.body, imageCount: 1, imageHash: 'test-image-hash', storage: 'browser' as const, verifiedAt: 10 } }
+    const saved = { ...job, status: 'saved' as const, updatedAt: 10, message: '已重新打开核对', evidence: { title: job.title, body: job.body, imageCount: 1, imageHashes: ['test-image-hash'], storage: 'browser' as const, verifiedAt: 10 } }
     sendMessage.mockResolvedValue({ ok: true, jobs: [saved] })
     for (const listener of listeners) listener({}, 'local')
     await vi.waitFor(() => expect(progress.textContent).toContain('此浏览器草稿箱'))

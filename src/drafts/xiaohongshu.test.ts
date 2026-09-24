@@ -4,14 +4,25 @@ import { createXiaohongshuAdapter } from './xiaohongshu'
 import type { DraftJob } from './types'
 
 const job: DraftJob = {
-  id: 'test', assetId: 'asset', platform: 'xiaohongshu', title: '测试草稿', body: '测试正文',
-  sourceUrl: 'https://x.com/example/status/1', filename: 'test.png',
+  id: 'test', assets: [{ id: 'asset', filename: 'test.png', mimeType: 'image/png' }], platform: 'xiaohongshu', title: '测试草稿', body: '测试正文',
+  sourceUrl: 'https://x.com/example/status/1',
   createdAt: 1, updatedAt: 1, status: 'running', step: 'verifying', message: '',
 }
 
 afterEach(() => { document.body.replaceChildren() })
 
 describe('Xiaohongshu draft adapter', () => {
+  it('returns ordered attachment slots while excluding hidden mirrors, avatars and empty placeholders', () => {
+    document.body.innerHTML = '<div class="publish-page-content"><input placeholder="填写标题会有更多赞哦">' +
+      '<div class="tiptap ProseMirror" contenteditable="true"></div>' +
+      '<img id="cover" class="img preview" src="cover.png"><img src="avatar.png">' +
+      '<div hidden><img class="img preview" src="cover.png"></div><img class="img preview">' +
+      '<img id="photo" class="img preview" src="photo.jpg"></div>'
+    const editor = createXiaohongshuAdapter().getEditor()!
+    expect(editor.imageCount).toBe(2)
+    expect(editor.images.map((image) => image.id)).toEqual(['cover', 'photo'])
+  })
+
   it('does not count a hidden stale preview as the current draft image', () => {
     document.body.innerHTML = '<div hidden><img class="img preview"></div>' +
       '<div class="publish-page-content"><input placeholder="填写标题会有更多赞哦">' +
