@@ -268,4 +268,58 @@ describe('draft composer', () => {
     expect(error.hidden).toBe(true)
   })
 
+  it('stops a running task once across rerenders and keeps navigation from creating another task', async () => {
+    let finish!: (response: DraftResponse) => void
+    let current: DraftJob = { ...job, status: 'running', step: 'uploading', message: '正在上传' }
+    sendMessage.mockImplementation(async (message) => message.type === 'DRAFT_CONTROL'
+      ? new Promise((resolve) => { finish = resolve })
+      : { ok: true, jobs: [current] })
+    composer.showProgress()
+    await vi.waitFor(() => expect(progress.querySelector<HTMLButtonElement>('.draft-control')?.textContent).toBe('停止自动操作'))
+    const control = () => progress.querySelector<HTMLButtonElement>('.draft-control')!
+    control().click()
+    expect(control().disabled).toBe(true)
+    expect(progress.textContent).toContain('正在停止自动操作')
+    for (const listener of listeners) listener({}, 'local')
+    await Promise.resolve()
+    control().click()
+    progress.querySelector<HTMLButtonElement>('.draft-back')!.click()
+    composer.showProgress()
+    expect(control().disabled).toBe(true)
+    expect(sendMessage.mock.calls.filter(([message]) => message.type === 'DRAFT_CONTROL')).toHaveLength(1)
+    expect(sendMessage).toHaveBeenCalledWith({ type: 'DRAFT_CONTROL', id: job.id, action: 'stop' })
+    current = { ...job, updatedAt: 10, message: '已停止，请检查后继续' }
+    finish({ ok: true })
+    await vi.waitFor(() => expect(control().textContent).toBe('检查并继续'))
+    expect(sendMessage.mock.calls.some(([message]) => message.type === 'DRAFT_CREATE')).toBe(false)
+  })
+
+  it('shows resume failures without changing the saved state and permits an explicit retry', async () => {
+    sendMessage.mockImplementation(async (message) => message.type === 'DRAFT_CONTROL'
+      ? { ok: false, error: '绑定的创作者中心已关闭' }
+      : { ok: true, jobs: [job] })
+    composer.showProgress()
+    await vi.waitFor(() => expect(progress.querySelector<HTMLButtonElement>('.draft-control')?.textContent).toBe('检查并继续'))
+    progress.querySelector<HTMLButtonElement>('.draft-control')!.click()
+    await vi.waitFor(() => expect(progress.querySelector('.draft-control-feedback')?.textContent).toBe('绑定的创作者中心已关闭'))
+    expect(progress.querySelector('.draft-control-feedback')?.getAttribute('role')).toBe('alert')
+    expect(progress.querySelector<HTMLButtonElement>('.draft-control')!.disabled).toBe(false)
+    expect(progress.querySelector('.draft-job')?.getAttribute('data-status')).toBe('needs_attention')
+    expect(sendMessage).toHaveBeenCalledWith({ type: 'DRAFT_CONTROL', id: job.id, action: 'resume' })
+    progress.querySelector<HTMLButtonElement>('.draft-control')!.click()
+    await vi.waitFor(() => expect(sendMessage.mock.calls.filter(([message]) => message.type === 'DRAFT_CONTROL')).toHaveLength(2))
+  })
+
+  it('only offers controls for unfinished tasks that still have a bound browser tab', async () => {
+    const queued = { ...job, id: 'queued-job', status: 'queued' as const }
+    const saved = { ...job, id: 'saved-job', status: 'saved' as const }
+    const lost = { ...job, id: 'lost-job', tabId: undefined }
+    sendMessage.mockResolvedValue({ ok: true, jobs: [queued, saved, lost] })
+    composer.showProgress()
+    await vi.waitFor(() => expect(progress.querySelectorAll('.draft-job')).toHaveLength(3))
+    expect(progress.querySelector('[data-job-id="queued-job"] .draft-control')?.textContent).toBe('停止自动操作')
+    expect(progress.querySelector('[data-job-id="saved-job"] .draft-control')).toBeNull()
+    expect(progress.querySelector('[data-job-id="lost-job"] .draft-control')).toBeNull()
+  })
+
 })

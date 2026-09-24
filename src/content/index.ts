@@ -4,9 +4,11 @@ import { articleStatusUrl, scrapeArticle, scrapePostText } from './scrape'
 import { startShareMenuInjector } from './share-menu'
 
 chrome.runtime.onMessage.addListener((message: KatieMessage, _sender, sendResponse) => {
-  if (message.type !== 'SCRAPE_POST') return false
-  const result = scrapePostText()
-  sendResponse({ type: 'SCRAPE_RESULT', result } satisfies KatieMessage)
+  if (message.type === 'OPEN_CARD_OVERLAY') {
+    openCardOverlay(scrapePostText())
+    sendResponse({ ok: true })
+    return false
+  }
   return false
 })
 

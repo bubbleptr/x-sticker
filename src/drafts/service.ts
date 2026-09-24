@@ -1,4 +1,4 @@
-import { DRAFT_TARGETS, type DraftInput, type DraftJob, type DraftMessage, type DraftResponse } from './types'
+import { DRAFT_TARGETS, type DraftInput, type DraftJob, type DraftMessage, type DraftResponse, type DraftRunControlMessage } from './types'
 
 function validateInput(input: DraftInput): void {
   if (!input || !Array.isArray(input.platforms) || input.platforms.length === 0 || input.platforms.length > 2 ||
@@ -39,6 +39,7 @@ export interface DraftTabs {
   createBlank(): Promise<number>
   navigate(tabId: number, url: string): Promise<void>
   focus(tabId: number): Promise<void>
+  control(tabId: number, command: DraftRunControlMessage): Promise<DraftResponse>
 }
 
 interface DraftDependencies {
@@ -87,10 +88,9 @@ export function createDraftService({ repository, tabs, extensionId, now = Date.n
   function assertUI(sender: chrome.runtime.MessageSender): void {
     if (sender.id !== extensionId || !sender.url) throw new Error('草稿操作来源无效')
     const url = new URL(sender.url)
-    if (url.protocol === 'chrome-extension:' && url.hostname === extensionId) return
     if ((url.origin === 'https://x.com' || url.origin === 'https://twitter.com') && sender.frameId === 0 &&
         (!sender.origin || sender.origin === url.origin)) return
-    throw new Error('请从 X Sticker 预览或扩展面板操作草稿')
+    throw new Error('请从 X/Twitter 的 X Sticker 预览操作草稿')
   }
 
   async function dispatch(message: DraftMessage, sender: chrome.runtime.MessageSender): Promise<DraftResponse> {
@@ -162,6 +162,7 @@ export function createDraftService({ repository, tabs, extensionId, now = Date.n
       if (job.status === 'needs_attention' && update.status === 'running' && jobs.some((other) =>
         other.id !== job.id && other.platform === job.platform && (other.status === 'queued' || other.status === 'running'),
       )) throw new Error(`${DRAFT_TARGETS[job.platform].label}已有处理中的草稿，请先完成或停止现有任务`)
+      if (job.status === 'needs_attention' && update.status !== 'needs_attention') throw new Error('草稿已暂停，请返回 X 检查并继续')
       if (update.imageHash !== undefined) {
         if (typeof update.imageHash !== 'string' || !/^[a-f0-9]{64}$/.test(update.imageHash) ||
             (job.imageHash !== undefined && update.imageHash !== job.imageHash) ||
@@ -214,9 +215,56 @@ export function createDraftService({ repository, tabs, extensionId, now = Date.n
     return { ok: false, error: '不支持的草稿操作' }
   }
 
+  const controlVersions = new Map<string, number>()
+
+  async function control(message: Extract<DraftMessage, { type: 'DRAFT_CONTROL' }>, sender: chrome.runtime.MessageSender): Promise<DraftResponse> {
+    const target = await serial(async () => {
+      assertUI(sender)
+      if (typeof message.id !== 'string' || !['stop', 'resume'].includes(message.action)) throw new Error('草稿控制命令无效')
+      const jobs = await repository.listJobs()
+      const job = jobs.find((candidate) => candidate.id === message.id)
+      if (!job) throw new Error('草稿任务不存在')
+      if (job.tabId === undefined) throw new Error('原标签页已关闭，请自行到创作者中心检查草稿')
+      if (job.status === 'saved') throw new Error('草稿已经保存，无需继续自动操作')
+      if ((message.action === 'stop' && job.status === 'needs_attention') ||
+          (message.action === 'resume' && (job.status === 'running' || job.status === 'queued'))) return
+      if (message.action === 'resume' && jobs.some((other) => other.id !== job.id && other.platform === job.platform &&
+          (other.status === 'queued' || other.status === 'running'))) {
+        throw new Error(`${DRAFT_TARGETS[job.platform].label}已有处理中的草稿，请先完成或停止现有任务`)
+      }
+      job.status = message.action === 'stop' ? 'needs_attention' : 'running'
+      job.message = message.action === 'stop' ? '你已停止自动操作，贴图和当前内容已保留' : '正在检查并继续原草稿'
+      job.updatedAt = now()
+      const version = (controlVersions.get(job.id) ?? 0) + 1
+      controlVersions.set(job.id, version)
+      await repository.saveJobs(jobs)
+      return { tabId: job.tabId, version }
+    })
+    if (!target) return { ok: true }
+    try {
+      // Creator messages must be free to re-enter the service while control is in flight.
+      const result = await tabs.control(target.tabId, { type: 'DRAFT_RUN_CONTROL', id: message.id, action: message.action })
+      if (!result.ok) throw new Error(result.error)
+      return { ok: true }
+    } catch (error) {
+      const failure = error instanceof Error ? error.message : '原标签页没有响应，请刷新创作者中心后返回 X 检查并继续'
+      await serial(async () => {
+        if (controlVersions.get(message.id) !== target.version) return
+        const jobs = await repository.listJobs()
+        const job = jobs.find((candidate) => candidate.id === message.id)
+        if (!job || job.status === 'saved') return
+        job.status = 'needs_attention'
+        job.message = message.action === 'stop' ? '已暂停任务；原标签页没有响应，请手动核对当前内容' : failure
+        job.updatedAt = now()
+        await repository.saveJobs(jobs)
+      })
+      return { ok: false, error: failure }
+    }
+  }
+
   return {
     handle(message: DraftMessage, sender: chrome.runtime.MessageSender): Promise<DraftResponse> {
-      return serial(() => dispatch(message, sender)).catch((error: unknown): DraftResponse => ({
+      return (message.type === 'DRAFT_CONTROL' ? control(message, sender) : serial(() => dispatch(message, sender))).catch((error: unknown): DraftResponse => ({
         ok: false, error: error instanceof Error ? error.message : '草稿操作失败',
       }))
     },

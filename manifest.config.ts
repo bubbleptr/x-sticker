@@ -6,9 +6,8 @@ export default defineManifest({
   name: 'X Sticker',
   short_name: 'X Sticker',
   description: '把 X/Twitter 文字贴转成竖版 PNG，并存到小红书、抖音草稿，最终发布由你完成',
-  version: '0.2.2',
+  version: '0.2.3',
   action: {
-    default_popup: 'src/popup/index.html',
     default_title: 'X Sticker',
   },
   background: {
@@ -27,7 +26,7 @@ export default defineManifest({
       run_at: 'document_idle',
     },
   ],
-  permissions: ['activeTab', 'downloads', 'storage'],
+  permissions: ['activeTab', 'downloads', 'storage', 'declarativeContent'],
   host_permissions: [
     'https://x.com/*',
     'https://twitter.com/*',

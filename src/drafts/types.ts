@@ -48,6 +48,8 @@ export interface DraftUpdate {
   imageHash?: string
 }
 
+export type DraftRunControlMessage = { type: 'DRAFT_RUN_CONTROL'; id: string; action: 'stop' | 'resume' }
+
 export type DraftMessage =
   | { type: 'DRAFT_CREATE'; input: DraftInput }
   | { type: 'DRAFT_LIST' }
@@ -55,6 +57,7 @@ export type DraftMessage =
   | { type: 'DRAFT_INSPECT'; platform: DraftPlatform }
   | { type: 'DRAFT_UPDATE'; id: string; update: DraftUpdate }
   | { type: 'DRAFT_OPEN'; id: string }
+  | { type: 'DRAFT_CONTROL'; id: string; action: 'stop' | 'resume' }
 
 export type DraftResponse =
   | { ok: true; jobs: DraftJob[] }

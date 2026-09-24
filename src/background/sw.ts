@@ -3,6 +3,9 @@ import { pngBytesToDataUrl } from './png-data-url'
 import { createDraftService } from '../drafts/service'
 import { createDraftRepository } from '../drafts/store'
 import type { DraftMessage } from '../drafts/types'
+import { registerXAction } from './action'
+
+registerXAction()
 
 const drafts = createDraftService({
   repository: createDraftRepository(),
@@ -14,6 +17,7 @@ const drafts = createDraftService({
       return tab.id
     },
     async navigate(tabId, url) { await chrome.tabs.update(tabId, { url }) },
+    async control(tabId, command) { return chrome.tabs.sendMessage(tabId, command, { frameId: 0 }) },
     async focus(tabId) {
       const tab = await chrome.tabs.get(tabId)
       await chrome.tabs.update(tabId, { active: true })

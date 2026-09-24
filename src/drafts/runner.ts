@@ -62,7 +62,7 @@ export async function runDraft(
   else options.signal?.addEventListener('abort', stopFromOutside, { once: true })
   let writing = false
   const manualInput = (event: Event) => {
-    if (event.isTrusted && !writing && !event.composedPath().some((node) => node instanceof Element && node.id === 'x-sticker-draft-panel')) {
+    if (event.isTrusted && !writing) {
       controller.abort(new Error('检测到你正在操作页面，自动操作已暂停，当前内容已保留'))
     }
   }

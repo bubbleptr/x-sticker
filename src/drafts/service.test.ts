@@ -1,10 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { createDraftService, type DraftRepository, type DraftTabs } from './service'
 import type { DraftInput, DraftJob, DraftUpdate } from './types'
 
 const png = [137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,0,0,0,1,0,0,0,1,8,6,0,0,0,31,21,196,137,0,0,0,11,73,68,65,84,120,156,99,96,0,2,0,0,5,0,1,165,246,69,64,0,0,0,0,73,69,78,68,174,66,96,130]
 const input: DraftInput = { platforms: ['xiaohongshu', 'douyin'], title: '一张贴图', body: '测试正文', sourceUrl: 'https://x.com/author/status/123', filename: 'sticker.png', bytes: png }
-const ui: chrome.runtime.MessageSender = { id: 'extension', url: 'chrome-extension://extension/src/popup/index.html' }
+const ui: chrome.runtime.MessageSender = { id: 'extension', url: 'https://x.com/home', origin: 'https://x.com', frameId: 0 }
 const imageHash = 'a'.repeat(64)
 
 function setup() {
@@ -27,6 +27,7 @@ function setup() {
       navigations.push({ tabId, url })
     },
     focus: async (tabId) => { if (!openTabs.has(tabId)) throw new Error('No tab') },
+    control: vi.fn(async () => ({ ok: true as const })),
   }
   const service = createDraftService({ repository, tabs, extensionId: 'extension', now: () => 1000, createId: () => `id-${++sequence}` })
   return { service, repository, tabs, assets, openTabs, navigations }
@@ -44,6 +45,61 @@ function creator(job: DraftJob): chrome.runtime.MessageSender {
 }
 
 describe('persistent draft workflow', () => {
+  it('routes controls only from X to the bound tab and never resumes a saved or unknown task', async () => {
+    const context = setup()
+    const [job] = await create(context)
+    for (const sender of [creator(job), { ...ui, id: 'foreign' }, { ...ui, frameId: 1 }]) {
+      expect((await context.service.handle({ type: 'DRAFT_CONTROL', id: job.id, action: 'stop' }, sender)).ok).toBe(false)
+    }
+    expect((await context.service.handle({ type: 'DRAFT_CONTROL', id: 'missing', action: 'resume' }, ui)).ok).toBe(false)
+    expect(context.tabs.control).not.toHaveBeenCalled()
+    expect(await context.service.handle({ type: 'DRAFT_CONTROL', id: job.id, action: 'stop' }, ui)).toEqual({ ok: true })
+    expect(context.tabs.control).toHaveBeenCalledWith(job.tabId, { type: 'DRAFT_RUN_CONTROL', id: job.id, action: 'stop' })
+    const jobs = await context.repository.listJobs()
+    jobs[0].status = 'saved'
+    await context.repository.saveJobs(jobs)
+    expect((await context.service.handle({ type: 'DRAFT_CONTROL', id: job.id, action: 'resume' }, ui)).ok).toBe(false)
+    await context.service.tabClosed(job.tabId!)
+    expect((await context.service.handle({ type: 'DRAFT_CONTROL', id: job.id, action: 'stop' }, ui)).ok).toBe(false)
+    expect(context.tabs.control).toHaveBeenCalledTimes(1)
+  })
+
+  it('stops a queued task before the creator is ready and rejects late running updates', async () => {
+    const context = setup()
+    const [job] = await create(context)
+    context.tabs.control = vi.fn(async () => { throw new Error('No receiver') })
+    expect((await context.service.handle({ type: 'DRAFT_CONTROL', id: job.id, action: 'stop' }, ui)).ok).toBe(false)
+    expect(await context.service.handle({ type: 'DRAFT_INSPECT', platform: job.platform }, creator(job))).toMatchObject({ ok: true, job: { status: 'needs_attention' } })
+    expect((await context.service.handle({ type: 'DRAFT_CLAIM', platform: job.platform }, creator(job))).ok).toBe(false)
+    expect((await context.service.handle({ type: 'DRAFT_UPDATE', id: job.id, update: { status: 'running', step: 'opening', message: '迟到的消息' } }, creator(job))).ok).toBe(false)
+    expect(context.navigations).toHaveLength(2)
+  })
+
+  it('sends controls outside the serial queue so an inspect/update round trip cannot deadlock, and coalesces duplicate resume', async () => {
+    const context = setup()
+    const [job] = await create(context)
+    await context.service.handle({ type: 'DRAFT_CLAIM', platform: job.platform }, creator(job))
+    await context.service.handle({ type: 'DRAFT_CONTROL', id: job.id, action: 'stop' }, ui)
+    context.tabs.control = vi.fn(async () => {
+      expect((await context.service.handle({ type: 'DRAFT_INSPECT', platform: job.platform }, creator(job))).ok).toBe(true)
+      return context.service.handle({ type: 'DRAFT_UPDATE', id: job.id, update: { status: 'running', step: 'opening', message: '已继续' } }, creator(job))
+    })
+    expect(await Promise.all([
+      context.service.handle({ type: 'DRAFT_CONTROL', id: job.id, action: 'resume' }, ui),
+      context.service.handle({ type: 'DRAFT_CONTROL', id: job.id, action: 'resume' }, ui),
+    ])).toEqual([{ ok: true }, { ok: true }])
+    expect(context.tabs.control).toHaveBeenCalledOnce()
+  })
+
+  it('preserves the paused checkpoint if the creator rejects resume', async () => {
+    const context = setup()
+    const [job] = await create(context)
+    await context.service.handle({ type: 'DRAFT_CONTROL', id: job.id, action: 'stop' }, ui)
+    context.tabs.control = vi.fn(async () => ({ ok: false as const, error: '页面正在停止，请稍后继续' }))
+    expect(await context.service.handle({ type: 'DRAFT_CONTROL', id: job.id, action: 'resume' }, ui)).toEqual({ ok: false, error: '页面正在停止，请稍后继续' })
+    expect(await context.service.handle({ type: 'DRAFT_INSPECT', platform: job.platform }, creator(job))).toMatchObject({ ok: true, job: { status: 'needs_attention', step: 'opening' } })
+  })
+
   it.each([{ hash: undefined }, { hash: 'not-a-sha256' }, { hash: [imageHash] }])('rejects a missing or malformed fingerprint before filling: %j', async ({ hash: invalidHash }) => {
     const context = setup()
     const [job] = await create(context)
@@ -118,10 +174,11 @@ describe('persistent draft workflow', () => {
     expect(context.openTabs.size).toBe(1)
   })
 
-  it('limits create/list/open to extension UI or the X capture page', async () => {
+  it('limits create/list/open to the X capture page', async () => {
     const context = setup()
     for (const sender of [
       { ...ui, id: 'foreign' },
+      { id: 'extension', url: 'chrome-extension://extension/src/popup/index.html' },
       { ...ui, url: 'https://creator.xiaohongshu.com/publish' },
       { ...ui, url: 'http://x.com/home' },
       { ...ui, url: 'https://x.com/home', frameId: 2 },

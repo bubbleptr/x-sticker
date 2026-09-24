@@ -66,8 +66,7 @@ export type ScrapeResult =
   | { ok: false; reason: 'no_text_post' }
 
 export type KatieMessage =
-  | { type: 'SCRAPE_POST' }
-  | { type: 'SCRAPE_RESULT'; result: ScrapeResult }
+  | { type: 'OPEN_CARD_OVERLAY' }
   | { type: 'DOWNLOAD_PNG'; bytes: number[]; filename: string }
   | { type: 'DOWNLOAD_OK' }
   | { type: 'DOWNLOAD_ERR'; message: string }

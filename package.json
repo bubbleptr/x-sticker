@@ -1,6 +1,6 @@
 {
   "name": "x-sticker",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": true,
   "description": "X Sticker — turn X/Twitter text posts into vertical quote-card PNGs",
   "type": "module",

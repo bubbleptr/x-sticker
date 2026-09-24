@@ -54,6 +54,9 @@ const CSS = `
 .draft-job[data-status=running] .draft-job-state::before { content: ''; display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: currentColor; animation: draft-pulse 1.5s ease-in-out infinite; }
 .draft-job-title { overflow-wrap: anywhere; font-size: 14px; }
 .draft-job button { justify-self: start; margin-top: 4px; background: #fff; color: inherit; border: 1px solid var(--line, #d8dfe7); font-size: 13px; }
+.draft-job-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.draft-control-feedback { font-size: 12px; color: var(--muted, #617080); }
+.draft-control-feedback[role=alert] { color: var(--danger, #b42318); }
 .draft-job[data-status=needs_attention] { border-color: #ddc393; }
 .draft-job[data-status=needs_attention] .draft-job-state { color: #956019; }
 .draft-job[data-status=saved] .draft-job-state { color: #17745d; }
@@ -141,6 +144,7 @@ export function createDraftComposer(container: HTMLElement, options: DraftCompos
   let creationError = ''
   let currentJobIds: string[] | null = null
   const jobsById = new Map<string, DraftJob>()
+  const controls = new Map<string, { action: 'stop' | 'resume'; pending: boolean; error: string }>()
 
   function setError(element: HTMLElement, error: string): void {
     element.textContent = error
@@ -199,6 +203,31 @@ export function createDraftComposer(container: HTMLElement, options: DraftCompos
     renderJobs()
   }
 
+  function controlAction(job: DraftJob): 'stop' | 'resume' | null {
+    if (job.tabId === undefined || job.status === 'saved') return null
+    return job.status === 'needs_attention' ? 'resume' : 'stop'
+  }
+
+  async function requestControl(id: string, action: 'stop' | 'resume'): Promise<void> {
+    const job = jobsById.get(id)
+    if (destroyed || controls.get(id)?.pending || !job || controlAction(job) !== action) return
+    const state = { action, pending: true, error: '' }
+    controls.set(id, state)
+    renderJobs()
+    try {
+      const response = await send({ type: 'DRAFT_CONTROL', id, action })
+      if (destroyed) return
+      if (!response.ok) throw new Error(response.error)
+      if ('jobs' in response) mergeJobs(response.jobs)
+      void refreshJobs()
+    } catch (error) {
+      state.error = error instanceof Error ? error.message : '无法控制草稿任务，请重试。'
+    } finally {
+      state.pending = false
+      if (!destroyed) renderJobs()
+    }
+  }
+
   function renderJobs(): void {
     const jobs = currentJobIds === null
       ? [...jobsById.values()].sort((a, b) => b.createdAt - a.createdAt)
@@ -231,6 +260,7 @@ export function createDraftComposer(container: HTMLElement, options: DraftCompos
       const item = document.createElement('li')
       item.className = 'draft-job'
       item.dataset.status = job.status
+      item.dataset.jobId = job.id
       const jobHeading = document.createElement('div')
       jobHeading.className = 'draft-job-heading'
       const platform = document.createElement('span')
@@ -252,6 +282,8 @@ export function createDraftComposer(container: HTMLElement, options: DraftCompos
         location.textContent = '已核对 · 此浏览器草稿箱'
         item.append(location)
       }
+      const actions = document.createElement('div')
+      actions.className = 'draft-job-actions'
       const open = document.createElement('button')
       open.type = 'button'
       open.textContent = job.status === 'needs_attention' ? '打开后台接手' : '打开后台'
@@ -267,7 +299,35 @@ export function createDraftComposer(container: HTMLElement, options: DraftCompos
           open.disabled = false
         }
       })
-      item.append(open)
+      actions.append(open)
+      const action = controlAction(job)
+      const controlState = controls.get(job.id)
+      if (action) {
+        const control = document.createElement('button')
+        control.type = 'button'
+        control.className = 'draft-control'
+        control.disabled = Boolean(controlState?.pending)
+        control.textContent = controlState?.pending
+          ? controlState.action === 'stop' ? '正在停止…' : '正在请求继续…'
+          : action === 'stop' ? '停止自动操作' : '检查并继续'
+        control.addEventListener('click', () => { void requestControl(job.id, action) })
+        actions.append(control)
+      }
+      item.append(actions)
+      if (controlState && job.status !== 'saved') {
+        const text = controlState.pending
+          ? controlState.action === 'stop' ? '正在停止自动操作…' : '正在请求检查并继续…'
+          : controlState.error || (action === controlState.action
+            ? controlState.action === 'stop' ? '已请求停止，等待后台确认。' : '已请求检查并继续，等待后台更新。'
+            : '')
+        if (text) {
+          const feedback = document.createElement('p')
+          feedback.className = 'draft-control-feedback'
+          feedback.setAttribute('role', controlState.error ? 'alert' : 'status')
+          feedback.textContent = text
+          item.append(feedback)
+        }
+      }
       list.append(item)
     }
   }

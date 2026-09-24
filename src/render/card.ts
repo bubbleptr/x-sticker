@@ -197,7 +197,7 @@ async function loadBundledBackground(src: BundledBackgroundFile): Promise<ImageB
 }
 
 /**
- * Browser (extension popup): html-to-image of X status HTML.
+ * Browser (in-page preview): html-to-image of X status HTML.
  * Node tests/scripts: import `renderCardPng` from `./cardNode` instead.
  */
 export async function renderCardPng(
