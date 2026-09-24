@@ -1,34 +1,20 @@
 import type { Background } from '../types'
-import { PHOTO_PRESETS } from '../photoBackgrounds'
+import { PHOTO_PRESET_GROUPS, type PhotoPresetId } from '../photoBackgrounds'
 
-export const BACKGROUND_PRESETS: Array<{
-  id: string
+type BackgroundPreset = {
+  id: PhotoPresetId
   label: string
   background: Background
-}> = [
-  {
-    id: 'white',
-    label: '纯白',
-    background: { kind: 'solid', color: '#ffffff' },
-  },
-  {
-    id: 'xgray',
-    label: '浅灰',
-    background: { kind: 'solid', color: '#e7e9ea' },
-  },
-  {
-    id: 'xblue',
-    label: '天蓝渐变',
-    background: { kind: 'gradient', from: '#1d9bf0', to: '#0c4a6e' },
-  },
-  {
-    id: 'ink',
-    label: '墨黑',
-    background: { kind: 'solid', color: '#0f1419' },
-  },
-  ...PHOTO_PRESETS.map((preset) => ({
+}
+
+export const BACKGROUND_PRESET_GROUPS = PHOTO_PRESET_GROUPS.map((group) => ({
+  id: group.id,
+  label: group.label,
+  presets: group.presets.map((preset): BackgroundPreset => ({
     id: preset.id,
     label: preset.label,
-    background: { kind: 'image' as const, src: preset.file },
+    background: { kind: 'image', src: preset.file },
   })),
-]
+}))
+
+export const BACKGROUND_PRESETS = BACKGROUND_PRESET_GROUPS.flatMap((group) => group.presets)

@@ -1,6 +1,7 @@
 import { renderCardPng } from '../render/card'
 import { createPreviewController } from '../render/preview'
-import { BACKGROUND_PRESETS } from '../popup/presets'
+import { BACKGROUND_PRESETS, BACKGROUND_PRESET_GROUPS } from '../popup/presets'
+import { DEFAULT_INSPECTOR_PREFERENCES, loadInspectorPreferences, saveInspectorPreferences, type InspectorPreferences } from '../inspectorPreferences'
 import { createDraftComposer } from '../drafts/composer'
 import {
   DEFAULT_RENDER_OPTIONS,
@@ -56,6 +57,10 @@ canvas { display: block; flex: none; margin: auto; background: #fff; border-radi
 .chip:has(input:checked), .preset[aria-pressed="true"] { border-color: var(--ink); background: #f1f3f5; }
 .chip input { position: absolute; opacity: 0; pointer-events: none; }
 .presets { display: flex; flex-wrap: wrap; gap: 8px; }
+.background-groups { display: grid; gap: 12px; width: 100%; }
+.background-group { border: 0; padding: 0; margin: 0; min-width: 0; }
+.background-group legend { font-size: 12px; color: var(--muted); }
+.preferences-status { margin: 0; color: var(--danger); font-size: 12px; }
 .download { width: 100%; }
 .progress-screen { flex: 1; min-height: 0; overflow: auto; padding: 32px; }
 .chip:has(input:focus-visible), button:focus-visible, .row input:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
@@ -102,11 +107,11 @@ export function openCardOverlay(result: ScrapeResult): void {
             </div>
             <p class="status" id="status" role="status"></p>
           </section>
-          <aside class="inspector" aria-label="出图选项">
+          <aside class="inspector" aria-label="出图选项" aria-busy="true" inert>
             <section class="appearance" aria-label="贴图样式">
             <h2 class="section-title">贴图样式</h2>
             <div class="author-options">
-              <label class="row"><input type="checkbox" id="hideHandle" checked />隐藏账号</label>
+              <label class="row"><input type="checkbox" id="showHandle" checked />显示账号</label>
               <label class="row"><input type="checkbox" id="showAuthor" checked />显示作者</label>
             </div>
             <fieldset class="fieldset">
@@ -116,8 +121,9 @@ export function openCardOverlay(result: ScrapeResult): void {
             </fieldset>
             <fieldset class="fieldset">
               <legend>背景</legend>
-              <div class="presets" id="bgPresets"></div>
+              <div class="background-groups" id="bgPresets"></div>
             </fieldset>
+            <p class="preferences-status" id="preferencesStatus" role="status" hidden></p>
             </section>
             <section id="draftComposer"></section>
             <button type="button" class="quiet-button download" id="download" disabled>下载 PNG</button>
@@ -129,7 +135,7 @@ export function openCardOverlay(result: ScrapeResult): void {
 
   const q = <T extends Element>(sel: string) => shadow.querySelector(sel) as T
   const statusEl = q<HTMLParagraphElement>('#status')
-  const hideHandleEl = q<HTMLInputElement>('#hideHandle')
+  const showHandleEl = q<HTMLInputElement>('#showHandle')
   const showAuthorEl = q<HTMLInputElement>('#showAuthor')
   const downloadBtn = q<HTMLButtonElement>('#download')
   const preview = q<HTMLCanvasElement>('#preview')
@@ -138,15 +144,30 @@ export function openCardOverlay(result: ScrapeResult): void {
   const sheet = q<HTMLDivElement>('#sheet')
   const workspace = q<HTMLElement>('.workspace')
   const progressScreen = q<HTMLElement>('#draftProgress')
+  const inspector = q<HTMLElement>('.inspector')
+  const preferencesStatus = q<HTMLElement>('#preferencesStatus')
   const previewController = createPreviewController(preview, q<HTMLElement>('#previewViewport'))
 
   const post: PostText | null = result.ok ? result.post : null
   let pngBytes: Uint8Array | null = null
-  let selectedBgId = BACKGROUND_PRESETS[0]!.id
+  let selectedBgId = DEFAULT_INSPECTOR_PREFERENCES.backgroundId
   let renderToken = 0
   const filename = `x-sticker-${Date.now()}.png`
+  const failedPreferences = new Set<keyof InspectorPreferences>()
+  const persistPreferences = (patch: Partial<InspectorPreferences>) => {
+    const fields = Object.keys(patch) as (keyof InspectorPreferences)[]
+    void saveInspectorPreferences(patch).then(() => {
+      for (const field of fields) failedPreferences.delete(field)
+      preferencesStatus.hidden = failedPreferences.size === 0
+    }).catch(() => {
+      for (const field of fields) failedPreferences.add(field)
+      preferencesStatus.textContent = '偏好保存失败，下次打开可能无法恢复。'
+      preferencesStatus.hidden = false
+    })
+  }
   const composer = createDraftComposer(q<HTMLElement>('#draftComposer'), {
     progressContainer: progressScreen,
+    onPlatformsChange: (platforms) => persistPreferences({ platforms }),
     onViewChange(view) {
       workspace.hidden = view !== 'editor'
       progressScreen.hidden = view !== 'progress'
@@ -165,7 +186,7 @@ export function openCardOverlay(result: ScrapeResult): void {
     const aspect = (aspectInput?.value as AspectRatio | undefined) ?? DEFAULT_RENDER_OPTIONS.aspect
     const preset = BACKGROUND_PRESETS.find((p) => p.id === selectedBgId) ?? BACKGROUND_PRESETS[0]!
     return {
-      hideHandle: hideHandleEl.checked,
+      hideHandle: !showHandleEl.checked,
       showAuthor: showAuthorEl.checked,
       aspect,
       background: preset.background,
@@ -197,21 +218,36 @@ export function openCardOverlay(result: ScrapeResult): void {
     }
   }
 
-  for (const preset of BACKGROUND_PRESETS) {
-    const btn = document.createElement('button')
-    btn.type = 'button'
-    btn.className = 'preset'
-    btn.textContent = preset.label
-    btn.setAttribute('aria-pressed', preset.id === selectedBgId ? 'true' : 'false')
-    btn.addEventListener('click', () => {
-      selectedBgId = preset.id
-      for (const child of Array.from(bgPresetsEl.children)) {
-        child.setAttribute('aria-pressed', child === btn ? 'true' : 'false')
-      }
-      void refreshPreview()
-    })
-    bgPresetsEl.appendChild(btn)
+  const updateBackgroundSelection = () => {
+    for (const button of bgPresetsEl.querySelectorAll<HTMLButtonElement>('.preset')) {
+      button.setAttribute('aria-pressed', String(button.dataset.presetId === selectedBgId))
+    }
   }
+  for (const group of BACKGROUND_PRESET_GROUPS) {
+    const fieldset = document.createElement('fieldset')
+    fieldset.className = 'background-group'
+    const legend = document.createElement('legend')
+    legend.textContent = group.label
+    const presets = document.createElement('div')
+    presets.className = 'presets'
+    for (const preset of group.presets) {
+      const btn = document.createElement('button')
+      btn.type = 'button'
+      btn.className = 'preset'
+      btn.dataset.presetId = preset.id
+      btn.textContent = preset.label
+      btn.addEventListener('click', () => {
+        selectedBgId = preset.id
+        updateBackgroundSelection()
+        persistPreferences({ backgroundId: selectedBgId })
+        void refreshPreview()
+      })
+      presets.appendChild(btn)
+    }
+    fieldset.append(legend, presets)
+    bgPresetsEl.appendChild(fieldset)
+  }
+  updateBackgroundSelection()
 
   const downloadPng = async () => {
     if (!pngBytes || !post) return
@@ -239,7 +275,7 @@ export function openCardOverlay(result: ScrapeResult): void {
   const onKey = (event: KeyboardEvent) => {
     if (event.key === 'Tab') {
       const controls = Array.from(shadow.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), textarea:not([disabled])'))
-        .filter((element) => element.getClientRects().length > 0)
+        .filter((element) => !element.closest('[inert]') && element.getClientRects().length > 0)
       const active = shadow.activeElement
       const first = controls[0]
       const last = controls.at(-1)
@@ -257,20 +293,41 @@ export function openCardOverlay(result: ScrapeResult): void {
   scrim.addEventListener('click', (event) => {
     if (event.target === scrim) close()
   })
-  hideHandleEl.addEventListener('change', () => void refreshPreview())
-  showAuthorEl.addEventListener('change', () => void refreshPreview())
-  for (const input of Array.from(shadow.querySelectorAll('input[name="aspect"]'))) {
-    input.addEventListener('change', () => void refreshPreview())
+  showHandleEl.addEventListener('change', () => {
+    persistPreferences({ showHandle: showHandleEl.checked })
+    void refreshPreview()
+  })
+  showAuthorEl.addEventListener('change', () => {
+    persistPreferences({ showAuthor: showAuthorEl.checked })
+    void refreshPreview()
+  })
+  for (const input of shadow.querySelectorAll<HTMLInputElement>('input[name="aspect"]')) {
+    input.addEventListener('change', () => {
+      persistPreferences({ aspect: input.value as AspectRatio })
+      void refreshPreview()
+    })
   }
   downloadBtn.addEventListener('click', () => void downloadPng())
   q<HTMLButtonElement>('#showProgress').addEventListener('click', () => composer.showProgress())
   document.documentElement.appendChild(host)
   sheet.focus()
 
-  if (!post) {
-    setStatus('这条贴没有文字', true)
-    return
-  }
-  setStatus(`已读取 · ${post.authorDisplayName ?? post.handle ?? '未知作者'}`)
-  void refreshPreview()
+  setStatus(post ? '正在读取偏好…' : '这条贴没有文字', !post)
+  void loadInspectorPreferences().then((preferences) => {
+    if (!host.isConnected) return
+    showHandleEl.checked = preferences.showHandle
+    showAuthorEl.checked = preferences.showAuthor
+    q<HTMLInputElement>(`input[name="aspect"][value="${preferences.aspect}"]`).checked = true
+    selectedBgId = preferences.backgroundId
+    updateBackgroundSelection()
+    composer.setPlatforms(preferences.platforms)
+  }).catch(() => {
+    preferencesStatus.textContent = '偏好读取失败，本次使用默认设置。'
+    preferencesStatus.hidden = false
+  }).finally(() => {
+    if (!host.isConnected) return
+    inspector.inert = false
+    inspector.removeAttribute('aria-busy')
+    void refreshPreview()
+  })
 }

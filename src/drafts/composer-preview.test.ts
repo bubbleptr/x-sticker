@@ -12,7 +12,7 @@ beforeEach(() => {
   sendMessage.mockReset().mockResolvedValue({ ok: true, jobs: [] })
   vi.stubGlobal('chrome', {
     runtime: { sendMessage },
-    storage: { onChanged: { addListener: vi.fn(), removeListener: vi.fn() } },
+    storage: { local: { get: vi.fn().mockResolvedValue({}), set: vi.fn().mockResolvedValue(undefined) }, onChanged: { addListener: vi.fn(), removeListener: vi.fn() } },
   })
   vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:preview')
 })
@@ -55,7 +55,7 @@ it('invalidates both actions immediately after changing image options and submit
   const download = root.querySelector<HTMLButtonElement>('#download')!
   const form = root.querySelector('form')!
   await vi.waitFor(() => expect(save.disabled).toBe(false))
-  root.querySelector<HTMLInputElement>('#hideHandle')!.click()
+  root.querySelector<HTMLInputElement>('#showHandle')!.click()
   expect(save.disabled).toBe(true)
   expect(download.disabled).toBe(true)
   form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))

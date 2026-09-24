@@ -48,6 +48,57 @@ afterEach(() => {
 })
 
 describe('draft composer', () => {
+  it('restores platform preferences without replacing edited text or submitting a draft', () => {
+    composer.setSnapshot(snapshot)
+    const title = container.querySelector<HTMLInputElement>('input[name=title]')!
+    const body = container.querySelector<HTMLTextAreaElement>('textarea[name=body]')!
+    title.value = '自己修改的标题'
+    body.value = '自己修改的正文'
+    body.dispatchEvent(new Event('input', { bubbles: true }))
+
+    composer.setPlatforms([])
+    expect(container.querySelectorAll('input[name=platform]:checked')).toHaveLength(0)
+    submit()
+    expect(container.querySelector<HTMLElement>('.draft-platform-error')!.hidden).toBe(false)
+    expect(sendMessage.mock.calls.some(([message]) => message.type === 'DRAFT_CREATE')).toBe(false)
+
+    composer.setPlatforms(['douyin'])
+    expect(container.querySelector<HTMLInputElement>('input[value=xiaohongshu]')!.checked).toBe(false)
+    expect(container.querySelector<HTMLInputElement>('input[value=douyin]')!.checked).toBe(true)
+    expect(container.querySelector<HTMLElement>('.draft-platform-error')!.hidden).toBe(true)
+    expect(title.value).toBe('自己修改的标题')
+    expect(body.value).toBe('自己修改的正文')
+    expect(button().disabled).toBe(false)
+    expect(sendMessage.mock.calls.some(([message]) => message.type === 'DRAFT_CREATE')).toBe(false)
+
+    composer.setSnapshot({ ...snapshot, bytes: null })
+    composer.setPlatforms(['xiaohongshu'])
+    expect(button().disabled).toBe(true)
+  })
+
+  it('reports user platform changes, including an empty selection, without reporting restored preferences or text edits', () => {
+    composer.destroy()
+    const onPlatformsChange = vi.fn()
+    composer = createDraftComposer(container, { progressContainer: progress, onViewChange, onPlatformsChange })
+    composer.setSnapshot(snapshot)
+    composer.setPlatforms(['douyin'])
+    const title = container.querySelector<HTMLInputElement>('input[name=title]')!
+    title.value = '自己修改的标题'
+    title.dispatchEvent(new Event('input', { bubbles: true }))
+    title.dispatchEvent(new Event('change', { bubbles: true }))
+    expect(onPlatformsChange).not.toHaveBeenCalled()
+
+    const xiaohongshu = container.querySelector<HTMLInputElement>('input[value=xiaohongshu]')!
+    const douyin = container.querySelector<HTMLInputElement>('input[value=douyin]')!
+    xiaohongshu.click()
+    douyin.click()
+    xiaohongshu.click()
+    expect(onPlatformsChange.mock.calls).toEqual([
+      [['xiaohongshu', 'douyin']], [['xiaohongshu']], [[]],
+    ])
+    expect(sendMessage.mock.calls.some(([message]) => message.type === 'DRAFT_CREATE')).toBe(false)
+  })
+
   it('submits edited text to both selected platforms once while creation is pending', async () => {
     let finish!: (response: DraftResponse) => void
     sendMessage.mockImplementation(async (message) => {
@@ -75,6 +126,7 @@ describe('draft composer', () => {
     } })
     finish({ ok: true, jobs: [job] })
     await vi.waitFor(() => expect(button().textContent).not.toContain('创建中'))
+    composer.setPlatforms(['xiaohongshu', 'douyin'])
     submit()
     expect(sendMessage.mock.calls.filter(([message]) => message.type === 'DRAFT_CREATE')).toHaveLength(1)
   })

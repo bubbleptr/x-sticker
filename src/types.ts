@@ -40,7 +40,7 @@ export type Background =
 export type MetaLocale = 'zh-CN' | 'en'
 
 export type RenderOptions = {
-  /** Default true. */
+  /** Default false so the account handle is visible. */
   hideHandle: boolean
   /** Default true. */
   showAuthor: boolean
@@ -55,10 +55,10 @@ export type RenderOptions = {
 }
 
 export const DEFAULT_RENDER_OPTIONS: RenderOptions = {
-  hideHandle: true,
+  hideHandle: false,
   showAuthor: true,
   aspect: '3:4',
-  background: { kind: 'solid', color: '#ffffff' },
+  background: { kind: 'image', src: 'backgrounds/mt-fog.jpg' },
   locale: 'zh-CN',
   showMenu: true,
 }
