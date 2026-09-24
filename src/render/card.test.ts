@@ -11,6 +11,8 @@ import {
   wrapLines,
 } from './card'
 import { renderCardPng } from './cardNode'
+import { bundledBackgroundFilePath } from './bundledBackgroundFile'
+import { CARD_SIDE_INSET_RATIO } from './outerFrame'
 import { ensureNodeCardFonts } from './nodeFonts'
 import type { PostText, RenderOptions } from '../types'
 
@@ -132,5 +134,40 @@ describe('renderCardPng (HTML → Chrome)', () => {
     const bytes = await renderCardPng(fixture, baseOptions)
     expect(bytes.byteLength).toBeGreaterThan(1000)
     expect(isPng(bytes)).toBe(true)
+  }, 60_000)
+
+  it('places a bundled photo behind the white status card', async () => {
+    const bytes = await renderCardPng(fixture, {
+      ...baseOptions,
+      background: { kind: 'image', src: 'backgrounds/hk-harbor.jpg' },
+    })
+    expect(isPng(bytes)).toBe(true)
+    const { createCanvas, loadImage } = await import('@napi-rs/canvas')
+    const exported = await loadImage(Buffer.from(bytes))
+    expect(exported.width).toBe(1080)
+    expect(exported.height).toBe(1440)
+    const canvas = createCanvas(exported.width, exported.height)
+    const ctx = canvas.getContext('2d')
+    ctx.drawImage(exported, 0, 0)
+    const photo = await loadImage(bundledBackgroundFilePath('backgrounds/hk-harbor.jpg'))
+    const source = createCanvas(photo.width, photo.height)
+    const sourceCtx = source.getContext('2d')
+    sourceCtx.imageSmoothingEnabled = false
+    sourceCtx.drawImage(photo, 0, 0)
+    const corner = ctx.getImageData(12, 12, 1, 1).data
+    const expected = sourceCtx.getImageData(12, 102, 1, 1).data
+    expect(Math.abs(corner[0]! - expected[0]!)).toBeLessThanOrEqual(2)
+    expect(Math.abs(corner[1]! - expected[1]!)).toBeLessThanOrEqual(2)
+    expect(Math.abs(corner[2]! - expected[2]!)).toBeLessThanOrEqual(2)
+    const inset = Math.round(exported.width * CARD_SIDE_INSET_RATIO)
+    const side = ctx.getImageData(12, 720, 1, 1).data
+    const sidePhoto = sourceCtx.getImageData(12, 810, 1, 1).data
+    expect(Math.abs(side[0]! - sidePhoto[0]!)).toBeLessThanOrEqual(2)
+    expect(Math.abs(side[1]! - sidePhoto[1]!)).toBeLessThanOrEqual(2)
+    expect(Math.abs(side[2]! - sidePhoto[2]!)).toBeLessThanOrEqual(2)
+    const card = ctx.getImageData(inset + 8, 720, 1, 1).data
+    expect(card[0]).toBeGreaterThan(240)
+    expect(card[1]).toBeGreaterThan(240)
+    expect(card[2]).toBeGreaterThan(240)
   }, 60_000)
 })

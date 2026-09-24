@@ -2,7 +2,7 @@
  * @vitest-environment happy-dom
  */
 import { describe, expect, it } from 'vitest'
-import { parseCountLabel, scrapePostText } from './scrape'
+import { articleStatusUrl, parseCountLabel, scrapeArticle, scrapePostText } from './scrape'
 
 function mountTweetHtml(html: string): Document {
   document.body.innerHTML = html
@@ -54,6 +54,27 @@ describe('scrapePostText', () => {
     expect(result.post.stats?.likes).toBe(531)
     expect(result.post.stats?.bookmarks).toBe(329)
     expect(result.post.stats?.views).toBe(44000)
+  })
+
+  it('scrapes the requested article, including its own status url', () => {
+    const doc = mountTweetHtml(`
+      <article data-testid="tweet" id="outer">
+        <article data-testid="tweet" id="quote">
+          <div data-testid="tweetText"><span>引用里的字</span></div>
+          <a href="/quote/status/999"><time datetime="2026-01-01T00:00:00.000Z">q</time></a>
+        </article>
+        <div data-testid="tweetText"><span>外层贴文</span></div>
+        <a href="/me/status/222"><time datetime="2026-09-23T13:00:00.000Z">t</time></a>
+      </article>
+    `)
+    const outer = doc.getElementById('outer')!
+    const page = 'https://x.com/someone/status/111'
+    expect(articleStatusUrl(outer, page)).toBe('https://x.com/me/status/222')
+    const result = scrapeArticle(outer, articleStatusUrl(outer, page))
+    expect(result).toMatchObject({
+      ok: true,
+      post: { text: '外层贴文', postUrl: 'https://x.com/me/status/222' },
+    })
   })
 
   it('returns no_text_post when tweetText missing', () => {

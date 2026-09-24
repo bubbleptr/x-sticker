@@ -1,7 +1,6 @@
 import {
   DEFAULT_RENDER_OPTIONS,
   type AspectRatio,
-  type Background,
   type KatieMessage,
   type PostText,
   type RenderOptions,
@@ -37,7 +36,7 @@ function currentOptions(): RenderOptions {
     hideHandle: hideHandleEl.checked,
     showAuthor: showAuthorEl.checked,
     aspect,
-    background: preset.background as Background,
+    background: preset.background,
   }
 }
 
@@ -48,7 +47,7 @@ function paintPreview(bytes: Uint8Array): void {
   const url = URL.createObjectURL(blob)
   const img = new Image()
   img.onload = () => {
-    const maxW = 270
+    const maxW = 480
     const scale = maxW / img.width
     preview.width = maxW
     preview.height = Math.round(img.height * scale)
@@ -154,7 +153,7 @@ async function scrapeActiveTab(): Promise<void> {
 
 async function downloadPng(): Promise<void> {
   if (!pngBytes || !post) return
-  const filename = `katie-${Date.now()}.png`
+  const filename = `x-sticker-${Date.now()}.png`
   const response = (await chrome.runtime.sendMessage({
     type: 'DOWNLOAD_PNG',
     bytes: Array.from(pngBytes),

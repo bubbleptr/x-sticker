@@ -1,7 +1,10 @@
+import type { Background } from '../types'
+import { PHOTO_PRESETS } from '../photoBackgrounds'
+
 export const BACKGROUND_PRESETS: Array<{
   id: string
   label: string
-  background: import('../types').Background
+  background: Background
 }> = [
   {
     id: 'white',
@@ -23,4 +26,9 @@ export const BACKGROUND_PRESETS: Array<{
     label: '墨黑',
     background: { kind: 'solid', color: '#0f1419' },
   },
+  ...PHOTO_PRESETS.map((preset) => ({
+    id: preset.id,
+    label: preset.label,
+    background: { kind: 'image' as const, src: preset.file },
+  })),
 ]

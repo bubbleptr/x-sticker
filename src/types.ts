@@ -1,3 +1,5 @@
+import type { BundledBackgroundFile } from './photoBackgrounds'
+
 export type PostStats = {
   replies?: number
   reposts?: number
@@ -26,6 +28,7 @@ export type AspectRatio = '3:4' | '9:16'
 export type Background =
   | { kind: 'solid'; color: string }
   | { kind: 'gradient'; from: string; to: string }
+  | { kind: 'image'; src: BundledBackgroundFile }
 
 export type MetaLocale = 'zh-CN' | 'en'
 
