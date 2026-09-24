@@ -48,7 +48,7 @@ Linux 建议：`fonts-wqy-microhei`、`fonts-noto-color-emoji`（以及可选 `f
 
 1. Content script 在打开的分享菜单里注入「做成卡贴」，刮该帖的 `PostText`，页内浮层预览。工具栏弹窗仍走 `SCRAPE_POST`。
 2. `render/statusHtml.ts` 拼出 598px 宽的 X light status HTML（实测字号/色值 + 真实 SVG path）
-3. 弹窗和页内浮层：`html-to-image`；Node：`playwright-core` Chrome 截 `article` → 铺满外框背景后居中贴上白底卡
+3. 弹窗和页内浮层：`html-to-image`；Node：`playwright-core` Chrome 截 `article` → 铺满外框背景，白底卡左右各留画布宽度的 10% 后垂直居中
 4. Background SW → `chrome.downloads`
 
 ## License

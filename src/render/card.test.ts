@@ -12,6 +12,7 @@ import {
 } from './card'
 import { renderCardPng } from './cardNode'
 import { bundledBackgroundFilePath } from './bundledBackgroundFile'
+import { CARD_SIDE_INSET_RATIO } from './outerFrame'
 import { ensureNodeCardFonts } from './nodeFonts'
 import type { PostText, RenderOptions } from '../types'
 
@@ -158,7 +159,13 @@ describe('renderCardPng (HTML → Chrome)', () => {
     expect(Math.abs(corner[0]! - expected[0]!)).toBeLessThanOrEqual(2)
     expect(Math.abs(corner[1]! - expected[1]!)).toBeLessThanOrEqual(2)
     expect(Math.abs(corner[2]! - expected[2]!)).toBeLessThanOrEqual(2)
-    const card = ctx.getImageData(20, 720, 1, 1).data
+    const inset = Math.round(exported.width * CARD_SIDE_INSET_RATIO)
+    const side = ctx.getImageData(12, 720, 1, 1).data
+    const sidePhoto = sourceCtx.getImageData(12, 810, 1, 1).data
+    expect(Math.abs(side[0]! - sidePhoto[0]!)).toBeLessThanOrEqual(2)
+    expect(Math.abs(side[1]! - sidePhoto[1]!)).toBeLessThanOrEqual(2)
+    expect(Math.abs(side[2]! - sidePhoto[2]!)).toBeLessThanOrEqual(2)
+    const card = ctx.getImageData(inset + 8, 720, 1, 1).data
     expect(card[0]).toBeGreaterThan(240)
     expect(card[1]).toBeGreaterThan(240)
     expect(card[2]).toBeGreaterThan(240)

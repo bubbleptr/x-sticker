@@ -4,7 +4,13 @@ import { BUNDLED_BACKGROUND_FILES, PHOTO_PRESETS } from '../photoBackgrounds'
 import { BACKGROUND_PRESETS } from '../popup/presets'
 import { ASPECT_SIZE } from '../types'
 import { bundledBackgroundFilePath } from './bundledBackgroundFile'
-import { coverDestRect, drawStatusCard, paintOuterBackground } from './outerFrame'
+import {
+  CARD_SIDE_INSET_RATIO,
+  coverDestRect,
+  drawStatusCard,
+  paintOuterBackground,
+  statusCardPlacement,
+} from './outerFrame'
 
 function rgba(ctx: { getImageData(x: number, y: number, w: number, h: number): { data: Uint8ClampedArray } }, x: number, y: number) {
   const data = ctx.getImageData(x, y, 1, 1).data
@@ -80,7 +86,7 @@ describe('paintOuterBackground', () => {
     expect(rgba(ctx, 12, 12)).toEqual(rgba(sourceCtx, 12, 102))
   })
 
-  it('draws the white status card on top of the photo', async () => {
+  it('draws the white status card on top of the photo with side gutters', async () => {
     const canvas = createCanvas(200, 200)
     const ctx = canvas.getContext('2d')
     await paintOuterBackground(
@@ -90,13 +96,31 @@ describe('paintOuterBackground', () => {
       200,
       loadBundled,
     )
+    const leftGutter = rgba(ctx, 8, 100)
+    const rightGutter = rgba(ctx, 192, 100)
     const card = createCanvas(200, 40)
     const cardCtx = card.getContext('2d')
     cardCtx.fillStyle = '#ffffff'
     cardCtx.fillRect(0, 0, 200, 40)
     drawStatusCard(ctx, card, 200, 200)
-    expect(rgba(ctx, 4, 4)[0]).not.toBe(255)
-    expect(rgba(ctx, 20, 100)).toEqual([255, 255, 255, 255])
+    const place = statusCardPlacement(card, 200, 200)
+    expect(place.x).toBe(20)
+    expect(place.width).toBe(160)
+    expect(rgba(ctx, 8, 100)).toEqual(leftGutter)
+    expect(rgba(ctx, 192, 100)).toEqual(rightGutter)
+    expect(rgba(ctx, place.x + 8, place.y + 8)).toEqual([255, 255, 255, 255])
+  })
+})
+
+describe('statusCardPlacement', () => {
+  it('uses 10% of the canvas width as the side inset and keeps the card aspect ratio', () => {
+    expect(CARD_SIDE_INSET_RATIO).toBe(0.1)
+    expect(statusCardPlacement({ width: 1000, height: 500 }, 1080, 1440)).toEqual({
+      x: 108,
+      y: 504,
+      width: 864,
+      height: 432,
+    })
   })
 })
 
