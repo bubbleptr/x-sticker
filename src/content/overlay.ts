@@ -24,8 +24,8 @@ const CSS = `
   color: #0f1419;
 }
 .sheet {
-  width: min(360px, calc(100vw - 24px));
-  max-height: min(92vh, 760px);
+  width: min(760px, calc(100vw - 32px));
+  max-height: min(92vh, 680px);
   overflow: auto;
   background: #ffffff;
   border-radius: 16px;
@@ -34,6 +34,29 @@ const CSS = `
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+.workspace {
+  display: flex;
+  align-items: stretch;
+  gap: 16px;
+  min-height: 480px;
+}
+.preview-wrap {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  border-radius: 12px;
+  background: #f7f9f9;
+}
+.inspector {
+  flex: 0 0 248px;
+  width: 248px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 .head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .brand { margin: 0; font-size: 18px; font-weight: 700; }
@@ -49,7 +72,6 @@ const CSS = `
 }
 .status { margin: 0; min-height: 1.25em; font-size: 12px; color: #536471; }
 .status.error { color: #f4212e; }
-.controls { display: flex; flex-direction: column; gap: 10px; }
 .row { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
 .fieldset { margin: 0; padding: 0; border: none; display: flex; flex-wrap: wrap; gap: 6px; }
 .fieldset legend { padding: 0; margin: 0 0 6px; width: 100%; font-size: 12px; color: #536471; }
@@ -71,12 +93,20 @@ const CSS = `
 }
 .chip input { position: absolute; opacity: 0; pointer-events: none; }
 .presets { display: flex; flex-wrap: wrap; gap: 6px; }
-.preview-wrap { display: flex; justify-content: center; }
-canvas { width: 180px; height: auto; background: #fff; }
+canvas {
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 520px;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(15, 20, 25, 0.12);
+}
 .download {
   appearance: none;
   border: none;
   border-radius: 999px;
+  margin-top: auto;
   padding: 10px 14px;
   font: inherit;
   font-weight: 700;
@@ -97,7 +127,7 @@ function paintPreview(preview: HTMLCanvasElement, bytes: Uint8Array): void {
   const url = URL.createObjectURL(blob)
   const img = new Image()
   img.onload = () => {
-    const maxW = 270
+    const maxW = 480
     const scale = maxW / img.width
     preview.width = maxW
     preview.height = Math.round(img.height * scale)
@@ -125,22 +155,26 @@ export function openCardOverlay(result: ScrapeResult): void {
           <h1 class="brand">卡贴</h1>
           <button type="button" class="close" id="close">关闭</button>
         </div>
-        <p class="status" id="status" role="status"></p>
-        <section class="controls" aria-label="出图选项">
-          <label class="row"><input type="checkbox" id="hideHandle" checked />隐藏 handle</label>
-          <label class="row"><input type="checkbox" id="showAuthor" checked />显示作者名</label>
-          <fieldset class="fieldset">
-            <legend>比例</legend>
-            <label class="chip"><input type="radio" name="aspect" value="3:4" checked /><span>3:4</span></label>
-            <label class="chip"><input type="radio" name="aspect" value="9:16" /><span>9:16</span></label>
-          </fieldset>
-          <fieldset class="fieldset">
-            <legend>背景</legend>
-            <div class="presets" id="bgPresets"></div>
-          </fieldset>
-        </section>
-        <div class="preview-wrap"><canvas id="preview" width="270" height="360"></canvas></div>
-        <button type="button" class="download" id="download" disabled>下载 PNG</button>
+        <div class="workspace">
+          <section class="preview-wrap" aria-label="预览">
+            <canvas id="preview" width="360" height="480"></canvas>
+          </section>
+          <aside class="inspector" aria-label="出图选项">
+            <p class="status" id="status" role="status"></p>
+            <label class="row"><input type="checkbox" id="hideHandle" checked />隐藏 handle</label>
+            <label class="row"><input type="checkbox" id="showAuthor" checked />显示作者名</label>
+            <fieldset class="fieldset">
+              <legend>比例</legend>
+              <label class="chip"><input type="radio" name="aspect" value="3:4" checked /><span>3:4</span></label>
+              <label class="chip"><input type="radio" name="aspect" value="9:16" /><span>9:16</span></label>
+            </fieldset>
+            <fieldset class="fieldset">
+              <legend>背景</legend>
+              <div class="presets" id="bgPresets"></div>
+            </fieldset>
+            <button type="button" class="download" id="download" disabled>下载 PNG</button>
+          </aside>
+        </div>
       </div>
     </div>`
 

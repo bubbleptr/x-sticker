@@ -47,7 +47,7 @@ function paintPreview(bytes: Uint8Array): void {
   const url = URL.createObjectURL(blob)
   const img = new Image()
   img.onload = () => {
-    const maxW = 270
+    const maxW = 480
     const scale = maxW / img.width
     preview.width = maxW
     preview.height = Math.round(img.height * scale)

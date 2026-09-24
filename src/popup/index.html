@@ -13,41 +13,42 @@
         <p class="tagline">Katie · 文字贴 → 竖版图</p>
       </header>
 
-      <p id="status" class="status" role="status"></p>
+      <div class="workspace">
+        <section class="preview-wrap" aria-label="预览">
+          <canvas id="preview" width="360" height="480"></canvas>
+        </section>
 
-      <section class="controls" aria-label="出图选项">
-        <label class="row">
-          <input type="checkbox" id="hideHandle" checked />
-          <span>隐藏 handle</span>
-        </label>
-        <label class="row">
-          <input type="checkbox" id="showAuthor" checked />
-          <span>显示作者名</span>
-        </label>
-
-        <fieldset class="fieldset">
-          <legend>比例</legend>
-          <label class="chip">
-            <input type="radio" name="aspect" value="3:4" checked />
-            <span>3:4</span>
+        <aside class="inspector" aria-label="出图选项">
+          <p id="status" class="status" role="status"></p>
+          <label class="row">
+            <input type="checkbox" id="hideHandle" checked />
+            <span>隐藏 handle</span>
           </label>
-          <label class="chip">
-            <input type="radio" name="aspect" value="9:16" />
-            <span>9:16</span>
+          <label class="row">
+            <input type="checkbox" id="showAuthor" checked />
+            <span>显示作者名</span>
           </label>
-        </fieldset>
 
-        <fieldset class="fieldset">
-          <legend>背景</legend>
-          <div id="bgPresets" class="presets"></div>
-        </fieldset>
-      </section>
+          <fieldset class="fieldset">
+            <legend>比例</legend>
+            <label class="chip">
+              <input type="radio" name="aspect" value="3:4" checked />
+              <span>3:4</span>
+            </label>
+            <label class="chip">
+              <input type="radio" name="aspect" value="9:16" />
+              <span>9:16</span>
+            </label>
+          </fieldset>
 
-      <section class="preview-wrap" aria-label="预览">
-        <canvas id="preview" width="270" height="360"></canvas>
-      </section>
+          <fieldset class="fieldset">
+            <legend>背景</legend>
+            <div id="bgPresets" class="presets"></div>
+          </fieldset>
 
-      <button type="button" id="download" class="download" disabled>下载 PNG</button>
+          <button type="button" id="download" class="download" disabled>下载 PNG</button>
+        </aside>
+      </div>
     </main>
     <script type="module" src="./popup.ts"></script>
   </body>
