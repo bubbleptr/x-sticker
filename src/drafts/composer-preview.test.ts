@@ -3,12 +3,14 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { openCardOverlay } from '../content/overlay'
 import { renderCardPng } from '../render/card'
 import type { DraftMessage, DraftResponse } from './types'
+import { mockSuccessfulBrowserImages } from '../render/test-browser-images'
 
 vi.mock('../render/card', () => ({ renderCardPng: vi.fn() }))
 
 const sendMessage = vi.fn<(message: DraftMessage) => Promise<DraftResponse>>(async () => ({ ok: true, jobs: [] }))
 
 beforeEach(() => {
+  mockSuccessfulBrowserImages()
   sendMessage.mockReset().mockResolvedValue({ ok: true, jobs: [] })
   vi.stubGlobal('chrome', {
     runtime: { sendMessage },
@@ -63,5 +65,5 @@ it('invalidates both actions immediately after changing image options and submit
   finishRender(new Uint8Array([4, 5, 6]))
   await vi.waitFor(() => expect(save.disabled).toBe(false))
   form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
-  expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'DRAFT_CREATE', input: expect.objectContaining({ bytes: [4, 5, 6] }) }))
+  expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'DRAFT_CREATE', input: expect.objectContaining({ images: [expect.objectContaining({ dataUrl: 'data:image/png;base64,BAUG' })] }) }))
 })

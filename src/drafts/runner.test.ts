@@ -1,15 +1,18 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { ImageAsset } from '../media'
 import type { PlatformAdapter } from './platform'
 import type { DraftJob, DraftUpdate } from './types'
-vi.mock('./image', () => ({ fingerprintImage: vi.fn(async () => 'a'.repeat(64)) }))
-import { fingerprintImage } from './image'
+vi.mock('./image', () => ({ fingerprintImage: vi.fn(async () => 'a'.repeat(64)), fingerprintSourceImage: vi.fn(async () => 'a'.repeat(64)) }))
+import { fingerprintImage, fingerprintSourceImage } from './image'
 import { runDraft } from './runner'
 
+const images: ImageAsset[] = [{ filename: 'sticker.png', mimeType: 'image/png', dataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAaX2RUAAAAAASUVORK5CYII=' }]
+
 const job: DraftJob = {
-  id: 'job-1', assetId: 'asset-1', platform: 'xiaohongshu', title: '今日贴图',
-  body: '第一段\n第二段', sourceUrl: 'https://x.com/user/status/1', filename: 'sticker.png',
-  status: 'running', step: 'filling', imageHash: 'a'.repeat(64), message: '', createdAt: 1, updatedAt: 1,
+  id: 'job-1', assets: [{ id: 'asset-1', filename: 'sticker.png', mimeType: 'image/png' }], platform: 'xiaohongshu', title: '今日贴图',
+  body: '第一段\n第二段', sourceUrl: 'https://x.com/user/status/1',
+  status: 'running', step: 'filling', imageHashes: ['a'.repeat(64)], message: '', createdAt: 1, updatedAt: 1,
 }
 
 function setup(overrides: Partial<PlatformAdapter> = {}) {
@@ -29,7 +32,7 @@ function setup(overrides: Partial<PlatformAdapter> = {}) {
   document.body.append(image)
   const adapter: PlatformAdapter = {
     storage: 'browser', getAccount: () => '账号一', getUploadInput: () => null,
-    getEditor: () => ({ title, body, image, imageCount: 1 }), hasExistingDraft: () => false,
+    getEditor: () => ({ title, body, images: [image], imageCount: 1 }), hasExistingDraft: () => false,
     dismissGuide: vi.fn(), saveDraft: vi.fn(async () => {}), reopenDraft: vi.fn(async () => {}),
     ...overrides,
   }
@@ -38,9 +41,55 @@ function setup(overrides: Partial<PlatformAdapter> = {}) {
   return { title, body, adapter, report, updates, exec }
 }
 
-afterEach(() => { document.body.innerHTML = ''; vi.restoreAllMocks(); vi.mocked(fingerprintImage).mockResolvedValue('a'.repeat(64)) })
+afterEach(() => { document.body.innerHTML = ''; vi.restoreAllMocks(); vi.mocked(fingerprintImage).mockResolvedValue('a'.repeat(64)); vi.mocked(fingerprintSourceImage).mockResolvedValue('a'.repeat(64)) })
 
 describe('draft runner', () => {
+  it('rechecks all images after recording the save checkpoint before clicking save', async () => {
+    const context = setup()
+    const report = async (update: DraftUpdate) => {
+      await context.report(update)
+      if (update.step === 'saving') vi.mocked(fingerprintImage).mockResolvedValue('b'.repeat(64))
+    }
+    const result = await runDraft(job, images, context.adapter, report, { timeout: 20 })
+    expect(result.status).toBe('needs_attention')
+    expect(context.adapter.saveDraft).not.toHaveBeenCalled()
+    expect(context.adapter.reopenDraft).not.toHaveBeenCalled()
+  })
+
+  it('stops if the platform changes an image while its fingerprint is being verified', async () => {
+    const context = setup()
+    const image = context.adapter.getEditor()!.images[0]!
+    image.src = 'https://example.com/current.png'
+    vi.mocked(fingerprintImage).mockImplementationOnce(async () => {
+      image.src = 'https://example.com/other.png'
+      return 'a'.repeat(64)
+    })
+    const result = await runDraft(job, images, context.adapter, context.report, { timeout: 20 })
+    expect(result.status).toBe('needs_attention')
+    expect(result.message).toContain('变化')
+    expect(context.adapter.saveDraft).not.toHaveBeenCalled()
+    expect(context.exec).not.toHaveBeenCalled()
+  })
+
+  it('rejects an upload whose visible pixels differ from the supplied source before adopting its identity', async () => {
+    const context = setup()
+    const upload = document.createElement('input')
+    upload.type = 'file'
+    upload.multiple = true
+    document.body.append(upload)
+    let uploaded = false
+    const getEditor = context.adapter.getEditor
+    context.adapter.getEditor = () => uploaded ? getEditor() : null
+    context.adapter.getUploadInput = () => upload
+    upload.addEventListener('change', () => { uploaded = true })
+    vi.mocked(fingerprintImage).mockResolvedValue('b'.repeat(64))
+    const result = await runDraft({ ...job, step: 'opening', imageHashes: undefined }, images, context.adapter, context.report, { timeout: 20 })
+    expect(result.status).toBe('needs_attention')
+    expect(result.message).toContain('源图')
+    expect(context.adapter.saveDraft).not.toHaveBeenCalled()
+    expect(context.exec).not.toHaveBeenCalled()
+  })
+
   it.each(['before_upload', 'while_recording_upload'] as const)('preserves an existing Douyin draft at %s and retries the same task once after it is handled', async (arrival) => {
     const context = setup()
     const input = document.createElement('input')
@@ -62,8 +111,8 @@ describe('draft runner', () => {
         revealAfterCheckpoint = false
       }
     }
-    const original: DraftJob = { ...job, platform: 'douyin', step: 'opening', imageHash: undefined }
-    const blocked = await runDraft(original, [1, 2, 3], context.adapter, report, { timeout: 20 })
+    const original: DraftJob = { ...job, platform: 'douyin', step: 'opening', imageHashes: undefined }
+    const blocked = await runDraft(original, images, context.adapter, report, { timeout: 20 })
     expect(blocked).toMatchObject({ status: 'needs_attention', step: 'opening', blocker: 'existing_draft' })
     expect(blocked.message).toContain('抖音')
     expect(blocked.message).toContain('尚未上传')
@@ -71,11 +120,11 @@ describe('draft runner', () => {
     expect(upload).not.toHaveBeenCalled()
     expect(context.adapter.saveDraft).not.toHaveBeenCalled()
     const paused = { ...original, ...blocked }
-    const stillBlocked = await runDraft(paused, [1, 2, 3], context.adapter, report, { timeout: 20 })
+    const stillBlocked = await runDraft(paused, images, context.adapter, report, { timeout: 20 })
     expect(stillBlocked).toMatchObject({ status: 'needs_attention', step: 'opening', blocker: 'existing_draft' })
     expect(upload).not.toHaveBeenCalled()
     existing = false
-    const retried = await runDraft({ ...paused, ...stillBlocked }, [1, 2, 3], context.adapter, report, { timeout: 20 })
+    const retried = await runDraft({ ...paused, ...stillBlocked }, images, context.adapter, report, { timeout: 20 })
     expect(retried.status).toBe('saved')
     expect(retried.blocker).toBeUndefined()
     expect(upload).toHaveBeenCalledOnce()
@@ -90,7 +139,7 @@ describe('draft runner', () => {
     context.adapter.getUploadInput = () => input
     const upload = vi.fn()
     input.addEventListener('change', upload)
-    const result = await runDraft({ ...job, platform: 'douyin', step: 'uploading', imageHash: undefined }, [1], context.adapter, context.report, { timeout: 5 })
+    const result = await runDraft({ ...job, platform: 'douyin', step: 'uploading', imageHashes: undefined }, images, context.adapter, context.report, { timeout: 5 })
     expect(result).toMatchObject({ status: 'needs_attention', step: 'uploading' })
     expect(result.blocker).toBeUndefined()
     expect(upload).not.toHaveBeenCalled()
@@ -98,7 +147,7 @@ describe('draft runner', () => {
 
   it('fills one image, saves, reopens and only then reports verified evidence', async () => {
     const context = setup()
-    const result = await runDraft(job, [1, 2, 3], context.adapter, context.report, { timeout: 20, now: () => 100 })
+    const result = await runDraft(job, images, context.adapter, context.report, { timeout: 20, now: () => 100 })
     expect(context.title.value).toBe(job.title)
     expect(context.body.textContent).toBe(job.body)
     expect(context.exec).toHaveBeenCalledWith('insertText', false, job.body)
@@ -114,7 +163,7 @@ describe('draft runner', () => {
     const context = setup()
     context.title.value = job.title
     context.body.textContent = job.body
-    const result = await runDraft({ ...job, status: 'needs_attention', step }, [], context.adapter, context.report, { timeout: 20 })
+    const result = await runDraft({ ...job, status: 'needs_attention', step }, images, context.adapter, context.report, { timeout: 20 })
     expect(result.status).toBe('saved')
     expect(context.adapter.saveDraft).not.toHaveBeenCalled()
     expect(context.adapter.reopenDraft).toHaveBeenCalledOnce()
@@ -125,7 +174,7 @@ describe('draft runner', () => {
   it('leaves unrelated editor text intact when continuing an interrupted fill', async () => {
     const context = setup()
     context.body.textContent = '用户正在编辑的其他草稿'
-    const result = await runDraft(job, [], context.adapter, context.report, { timeout: 20 })
+    const result = await runDraft(job, images, context.adapter, context.report, { timeout: 20 })
     expect(result.status).toBe('needs_attention')
     expect(context.body.textContent).toBe('用户正在编辑的其他草稿')
     expect(context.title.value).toBe('')
@@ -149,7 +198,7 @@ describe('draft runner', () => {
       expect(upload.files?.[0].name).toBe('sticker.png')
       uploaded = true
     })
-    const result = await runDraft({ ...job, step: 'opening' }, [1, 2, 3], context.adapter, context.report, { timeout: 20 })
+    const result = await runDraft({ ...job, step: 'opening' }, images, context.adapter, context.report, { timeout: 20 })
     expect(result.status).toBe('saved')
     expect(uploaded).toBe(true)
     expect(context.updates.some((update) => update.step === 'filling')).toBe(true)
@@ -158,7 +207,7 @@ describe('draft runner', () => {
 
   it('stops if the visible account differs from the job account', async () => {
     const context = setup({ getAccount: () => '其他账号' })
-    const result = await runDraft({ ...job, account: '原账号' }, [], context.adapter, context.report)
+    const result = await runDraft({ ...job, account: '原账号' }, images, context.adapter, context.report)
     expect(result.status).toBe('needs_attention')
     expect(result.message).toContain('账号')
     expect(context.exec).not.toHaveBeenCalled()
@@ -168,7 +217,7 @@ describe('draft runner', () => {
   it('does not claim success if the account changes while reopening the draft', async () => {
     let account = '账号一'
     const context = setup({ getAccount: () => account, reopenDraft: vi.fn(async () => { account = '账号二' }) })
-    const result = await runDraft(job, [], context.adapter, context.report, { timeout: 20 })
+    const result = await runDraft(job, images, context.adapter, context.report, { timeout: 20 })
     expect(result.status).toBe('needs_attention')
     expect(result.message).toContain('账号')
     expect(context.updates.some((update) => update.status === 'saved')).toBe(false)
@@ -182,7 +231,7 @@ describe('draft runner', () => {
       await context.report(update)
       if (update.step === 'saving') controller.abort(new Error('你已停止自动操作'))
     }
-    const result = await runDraft(job, [], context.adapter, report, { signal: controller.signal, timeout: 20 })
+    const result = await runDraft(job, images, context.adapter, report, { signal: controller.signal, timeout: 20 })
     expect(result.status).toBe('needs_attention')
     expect(result.message).toContain('停止')
     expect(context.adapter.saveDraft).not.toHaveBeenCalled()
@@ -196,7 +245,7 @@ describe('draft runner', () => {
     dialog.setAttribute('role', 'dialog')
     dialog.textContent = '请完成安全验证'
     document.body.append(dialog)
-    const result = await runDraft(job, [], context.adapter, context.report, { timeout: 20 })
+    const result = await runDraft(job, images, context.adapter, context.report, { timeout: 20 })
     expect(result.status).toBe('needs_attention')
     expect(context.title.value).toBe('')
     expect(context.adapter.saveDraft).not.toHaveBeenCalled()
@@ -207,7 +256,7 @@ describe('draft runner', () => {
     const context = setup()
     context.title.value = job.title
     context.body.textContent = job.body
-    const result = await runDraft({ ...job, step: 'opening' }, [1], context.adapter, context.report, { timeout: 20 })
+    const result = await runDraft({ ...job, step: 'opening' }, images, context.adapter, context.report, { timeout: 20 })
     expect(result.status).toBe('needs_attention')
     expect(context.adapter.saveDraft).not.toHaveBeenCalled()
   })
@@ -220,7 +269,7 @@ describe('draft runner', () => {
     context.adapter.getUploadInput = () => input
     const upload = vi.fn()
     input.addEventListener('change', upload)
-    const result = await runDraft({ ...job, step: 'uploading' }, [1], context.adapter, context.report, { timeout: 5 })
+    const result = await runDraft({ ...job, step: 'uploading' }, images, context.adapter, context.report, { timeout: 5 })
     expect(result.status).toBe('needs_attention')
     expect(upload).not.toHaveBeenCalled()
     expect(context.adapter.saveDraft).not.toHaveBeenCalled()
@@ -237,7 +286,7 @@ describe('draft runner', () => {
     context.adapter.getUploadInput = () => input
     context.adapter.getEditor = () => uploaded ? editor : null
     input.addEventListener('change', () => { uploaded = true })
-    const result = await runDraft({ ...job, platform: 'douyin', step: 'opening' }, [1], context.adapter, context.report, { timeout: 20 })
+    const result = await runDraft({ ...job, platform: 'douyin', step: 'opening' }, images, context.adapter, context.report, { timeout: 20 })
     expect(result.status).toBe('saved')
     expect(context.updates.find((update) => update.step === 'filling')?.account).toBe('抖音账号')
   })
@@ -247,20 +296,20 @@ describe('draft runner', () => {
     const context = setup({ reopenDraft: vi.fn(async () => {
       context.body.innerHTML = '<p>甲&nbsp; 乙</p><p>👩‍💻<span data-slate-zero-width="z">&#xfeff;</span></p>'
     }) })
-    const result = await runDraft({ ...job, body: text }, [], context.adapter, context.report, { timeout: 20 })
+    const result = await runDraft({ ...job, body: text }, images, context.adapter, context.report, { timeout: 20 })
     expect(result).toMatchObject({ status: 'saved', evidence: { body: text } })
   })
 
   it('does not report success when reopened content has different whitespace', async () => {
     const context = setup({ reopenDraft: vi.fn(async () => { context.body.textContent = '甲 乙' }) })
-    const result = await runDraft({ ...job, body: '甲  乙' }, [], context.adapter, context.report, { timeout: 5 })
+    const result = await runDraft({ ...job, body: '甲  乙' }, images, context.adapter, context.report, { timeout: 5 })
     expect(result.status).toBe('needs_attention')
     expect(context.updates.some((update) => update.status === 'saved')).toBe(false)
   })
 
   it('identifies a missing description after saving instead of reporting a generic verification timeout', async () => {
     const context = setup({ reopenDraft: vi.fn(async () => { context.body.textContent = '' }) })
-    const result = await runDraft(job, [], context.adapter, context.report, { timeout: 5 })
+    const result = await runDraft(job, images, context.adapter, context.report, { timeout: 5 })
     expect(result).toMatchObject({ status: 'needs_attention', step: 'verifying' })
     expect(result.message).toContain('正文')
     expect(result.evidence).toBeUndefined()
@@ -272,7 +321,7 @@ describe('draft runner', () => {
     const context = setup()
     const getEditor = context.adapter.getEditor
     context.adapter.getEditor = () => ({ ...getEditor()!, bodyLength: context.body.textContent?.length ?? 0 })
-    const result = await runDraft({ ...job, body: text }, [], context.adapter, context.report, { timeout: 5 })
+    const result = await runDraft({ ...job, body: text }, images, context.adapter, context.report, { timeout: 5 })
     expect(result).toMatchObject({ status: 'saved', evidence: { body: text } })
     expect(context.adapter.saveDraft).toHaveBeenCalledOnce()
   })
@@ -286,7 +335,7 @@ describe('draft runner', () => {
       document.body.append(dialog)
       await stopped
     }) })
-    const result = await runDraft(job, [], context.adapter, context.report, { timeout: 20 })
+    const result = await runDraft(job, images, context.adapter, context.report, { timeout: 20 })
     expect(result).toMatchObject({ status: 'needs_attention', step: 'saving' })
     expect(context.adapter.reopenDraft).not.toHaveBeenCalled()
   })
@@ -294,7 +343,7 @@ describe('draft runner', () => {
 
   it('rejects a reopened old draft with identical text but a different image', async () => {
     const context = setup({ reopenDraft: vi.fn(async () => { vi.mocked(fingerprintImage).mockResolvedValue('b'.repeat(64)) }) })
-    const result = await runDraft(job, [], context.adapter, context.report, { timeout: 20 })
+    const result = await runDraft(job, images, context.adapter, context.report, { timeout: 20 })
     expect(result.status).toBe('needs_attention')
     expect(result.message).toContain('图片')
     expect(context.updates.some((update) => update.status === 'saved')).toBe(false)
@@ -304,7 +353,7 @@ describe('draft runner', () => {
     const context = setup()
     context.title.value = job.title
     context.body.textContent = job.body
-    const result = await runDraft({ ...job, step: 'verifying', imageHash: undefined }, [], context.adapter, context.report, { timeout: 20 })
+    const result = await runDraft({ ...job, step: 'verifying', imageHashes: undefined }, images, context.adapter, context.report, { timeout: 20 })
     expect(result.status).toBe('needs_attention')
     expect(context.adapter.reopenDraft).not.toHaveBeenCalled()
   })
@@ -318,13 +367,13 @@ describe('draft runner', () => {
     const hashingStarted = new Promise<void>((resolve) => { started = resolve })
     const hashingFinished = new Promise<string>((resolve) => { release = resolve })
     vi.mocked(fingerprintImage).mockImplementationOnce(() => { started(); return hashingFinished })
-    const pending = runDraft({ ...job, step: 'uploading', imageHash: undefined }, [], context.adapter, context.report, { signal: controller.signal, timeout: 20 })
+    const pending = runDraft({ ...job, step: 'uploading', imageHashes: undefined }, images, context.adapter, context.report, { signal: controller.signal, timeout: 20 })
     await hashingStarted
     controller.abort(new Error('你已停止自动操作'))
     release('a'.repeat(64))
     const result = await pending
     expect(result).toMatchObject({ status: 'needs_attention', step: 'uploading' })
-    expect(result.imageHash).toBeUndefined()
+    expect(result.imageHashes).toBeUndefined()
     expect(context.updates.some((update) => update.step === 'filling')).toBe(false)
   })
 
@@ -340,13 +389,13 @@ describe('draft runner', () => {
         reopenLoading = false
         document.body.setAttribute('data-image-loaded', 'yes')
       })
-      return { ...editor, image: null }
+      return { ...editor, images: [] }
     }
     vi.mocked(fingerprintImage).mockImplementation(async (image) => {
       if (!image) throw new Error('图片尚未加载')
       return 'a'.repeat(64)
     })
-    const result = await runDraft(job, [], context.adapter, context.report, { timeout: 20 })
+    const result = await runDraft(job, images, context.adapter, context.report, { timeout: 20 })
     expect(result.status).toBe('saved')
   })
 
@@ -367,7 +416,7 @@ describe('draft runner', () => {
       signal?.throwIfAborted()
       clicks++
     })
-    const result = await runDraft(job, [], context.adapter, context.report, { timeout: 20 })
+    const result = await runDraft(job, images, context.adapter, context.report, { timeout: 20 })
     expect(result.status).toBe('needs_attention')
     expect(result.message).toContain('账号')
     expect(clicks).toBe(0)
@@ -378,7 +427,7 @@ describe('draft runner', () => {
     const context = setup()
     const getEditor = context.adapter.getEditor
     context.adapter.getEditor = () => ({ ...getEditor()!, titleEcho: null })
-    const result = await runDraft(job, [], context.adapter, context.report, { timeout: 5 })
+    const result = await runDraft(job, images, context.adapter, context.report, { timeout: 5 })
     expect(context.title.value).toBe(job.title)
     expect(result.status).toBe('needs_attention')
     expect(context.adapter.saveDraft).not.toHaveBeenCalled()
@@ -396,7 +445,7 @@ describe('draft runner', () => {
       if (context.body.textContent === job.body) reachedPreview()
       return { ...getEditor()!, titleEcho }
     }
-    const pending = runDraft(job, [], context.adapter, context.report, { timeout: 100 })
+    const pending = runDraft(job, images, context.adapter, context.report, { timeout: 100 })
     await waitingForPreview
     expect(context.adapter.saveDraft).not.toHaveBeenCalled()
     titleEcho = job.title

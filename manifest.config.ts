@@ -5,8 +5,8 @@ export default defineManifest({
   manifest_version: 3,
   name: 'X Sticker',
   short_name: 'X Sticker',
-  description: '把 X/Twitter 文字贴转成竖版 PNG，并存到小红书、抖音草稿，最终发布由你完成',
-  version: '0.2.8',
+  description: '把 X/Twitter 帖子做成文字封面与原始配图，下载或存到小红书、抖音草稿',
+  version: '0.3.0',
   action: {
     default_title: 'X Sticker',
   },

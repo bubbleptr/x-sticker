@@ -1,3 +1,5 @@
+import type { ImageAsset, ImageMimeType } from '../media'
+
 export type DraftPlatform = 'xiaohongshu' | 'douyin'
 export type DraftStep = 'opening' | 'uploading' | 'filling' | 'saving' | 'verifying'
 export type DraftStatus = 'queued' | 'running' | 'needs_attention' | 'saved'
@@ -7,27 +9,25 @@ export interface DraftInput {
   title: string
   body: string
   sourceUrl: string
-  filename: string
-  bytes: number[]
+  images: ImageAsset[]
 }
 
 export interface DraftEvidence {
   title: string
   body: string
   imageCount: number
-  imageHash: string
+  imageHashes: string[]
   storage: 'browser' | 'account' | 'unknown'
   verifiedAt: number
 }
 
 export interface DraftJob {
   id: string
-  assetId: string
+  assets: { id: string; filename: string; mimeType: ImageMimeType }[]
   platform: DraftPlatform
   title: string
   body: string
   sourceUrl: string
-  filename: string
   createdAt: number
   updatedAt: number
   status: DraftStatus
@@ -36,7 +36,7 @@ export interface DraftJob {
   tabId?: number
   account?: string
   evidence?: DraftEvidence
-  imageHash?: string
+  imageHashes?: string[]
   blocker?: 'existing_draft'
 }
 
@@ -46,7 +46,7 @@ export interface DraftUpdate {
   message: string
   account?: string
   evidence?: DraftEvidence
-  imageHash?: string
+  imageHashes?: string[]
   blocker?: 'existing_draft'
 }
 
@@ -63,7 +63,7 @@ export type DraftMessage =
 
 export type DraftResponse =
   | { ok: true; jobs: DraftJob[] }
-  | { ok: true; job: DraftJob; bytes: number[] }
+  | { ok: true; job: DraftJob; images: ImageAsset[] }
   | { ok: true }
   | { ok: false; error: string }
 

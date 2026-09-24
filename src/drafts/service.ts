@@ -1,3 +1,4 @@
+import { decodeImageAsset, encodeImageAsset, validateImageAssets } from '../media'
 import { DRAFT_TARGETS, type DraftInput, type DraftJob, type DraftMessage, type DraftResponse, type DraftRunControlMessage } from './types'
 
 function validateInput(input: DraftInput): void {
@@ -7,25 +8,15 @@ function validateInput(input: DraftInput): void {
   if (typeof input.title !== 'string' || !input.title.trim() || [...input.title].length > 20) throw new Error('标题须为 1–20 个字')
   if (typeof input.body !== 'string' || [...input.body].length > 1000) throw new Error('正文不能超过 1000 个字')
   if (typeof input.sourceUrl !== 'string' || input.sourceUrl.length > 2048) throw new Error('来源链接无效')
-  if (typeof input.filename !== 'string' || !/^[^/\\\x00-\x1f]{1,180}\.png$/i.test(input.filename)) throw new Error('图片文件名无效')
-  if (!Array.isArray(input.bytes) || input.bytes.length > 10 * 1024 * 1024 ||
-      input.bytes.some((byte) => !Number.isInteger(byte) || byte < 0 || byte > 255)) throw new Error('PNG 图片不能超过 10 MB')
-  const bytes = Uint8Array.from(input.bytes)
-  const signature = [137, 80, 78, 71, 13, 10, 26, 10]
-  if (bytes.length < 45 || signature.some((byte, index) => bytes[index] !== byte)) throw new Error('图片不是有效的 PNG')
-  const view = new DataView(bytes.buffer)
-  let offset = 8
-  let hasPixels = false
-  while (offset + 12 <= bytes.length) {
-    const size = view.getUint32(offset)
-    const kind = String.fromCharCode(...bytes.subarray(offset + 4, offset + 8))
-    if (offset + size + 12 > bytes.length) break
-    if (offset === 8 && (kind !== 'IHDR' || size !== 13 || view.getUint32(16) === 0 || view.getUint32(20) === 0)) break
-    if (kind === 'IDAT' && size > 0) hasPixels = true
-    if (kind === 'IEND' && size === 0 && hasPixels && offset + 12 === bytes.length) return
-    offset += size + 12
-  }
-  throw new Error('PNG 图片不完整，请重新生成')
+  validateImageAssets(input.images)
+}
+
+function validHashes(value: unknown, count: number): value is string[] {
+  return Array.isArray(value) && value.length === count && value.every((hash) => typeof hash === 'string' && /^[a-f0-9]{64}$/.test(hash))
+}
+
+function sameHashes(first: string[], second: string[]): boolean {
+  return first.length === second.length && first.every((hash, index) => hash === second[index])
 }
 
 export interface DraftRepository {
@@ -103,11 +94,15 @@ export function createDraftService({ repository, tabs, extensionId, now = Date.n
       const jobs = await repository.listJobs()
       const active = jobs.find((job) => input.platforms.includes(job.platform) && (job.status === 'queued' || job.status === 'running'))
       if (active) throw new Error(`${DRAFT_TARGETS[active.platform].label}已有处理中的草稿，请先完成或停止现有任务`)
-      const assetId = createId()
-      await repository.saveAsset(assetId, new Blob([Uint8Array.from(input.bytes)], { type: 'image/png' }))
+      const assets: DraftJob['assets'] = []
+      for (const image of input.images) {
+        const id = createId()
+        await repository.saveAsset(id, new Blob([Uint8Array.from(decodeImageAsset(image))], { type: image.mimeType }))
+        assets.push({ id, filename: image.filename, mimeType: image.mimeType })
+      }
       const created: DraftJob[] = input.platforms.map((platform) => ({
-        id: createId(), assetId, platform, title: input.title, body: input.body,
-        sourceUrl: input.sourceUrl, filename: input.filename, createdAt: now(), updatedAt: now(),
+        id: createId(), assets, platform, title: input.title, body: input.body,
+        sourceUrl: input.sourceUrl, createdAt: now(), updatedAt: now(),
         status: 'queued', step: 'opening', message: '正在打开创作者中心',
       }))
       jobs.push(...created)
@@ -141,15 +136,20 @@ export function createDraftService({ repository, tabs, extensionId, now = Date.n
         }
         throw new Error(job.status === 'saved' ? '草稿已经核对保存' : '草稿已暂停，请在原标签页核对后继续')
       }
-      const asset = await repository.getAsset(job.assetId)
-      if (!asset) throw new Error('贴图素材已丢失，请重新生成')
+      const images = []
+      for (const metadata of job.assets) {
+        const asset = await repository.getAsset(metadata.id)
+        if (!asset) throw new Error('贴图素材已丢失，请重新生成')
+        images.push(encodeImageAsset(new Uint8Array(await asset.arrayBuffer()), metadata.mimeType, metadata.filename))
+      }
+      validateImageAssets(images)
       if (message.type === 'DRAFT_CLAIM') {
         job.status = 'running'
         delete job.blocker
         job.updatedAt = now()
         await repository.saveJobs(jobs)
       }
-      return { ok: true, job, bytes: [...new Uint8Array(await asset.arrayBuffer())] }
+      return { ok: true, job, images }
     }
     if (message.type === 'DRAFT_UPDATE') {
       const jobs = await repository.listJobs()
@@ -167,33 +167,33 @@ export function createDraftService({ repository, tabs, extensionId, now = Date.n
       )) throw new Error(`${DRAFT_TARGETS[job.platform].label}已有处理中的草稿，请先完成或停止现有任务`)
       if (job.status === 'needs_attention' && update.status !== 'needs_attention') throw new Error('草稿已暂停，请返回 X 检查并继续')
       if (update.blocker !== undefined && (update.blocker !== 'existing_draft' || job.platform !== 'douyin' ||
-          update.status !== 'needs_attention' || update.step !== 'opening' || job.imageHash !== undefined ||
-          update.imageHash !== undefined || !['opening', 'uploading'].includes(job.step))) {
+          update.status !== 'needs_attention' || update.step !== 'opening' || job.imageHashes !== undefined ||
+          update.imageHashes !== undefined || !['opening', 'uploading'].includes(job.step))) {
         throw new Error('旧草稿阻塞状态无效，不能重新上传')
       }
-      if (update.imageHash !== undefined) {
-        if (typeof update.imageHash !== 'string' || !/^[a-f0-9]{64}$/.test(update.imageHash) ||
-            (job.imageHash !== undefined && update.imageHash !== job.imageHash) ||
-            (job.imageHash === undefined && (job.step !== 'uploading' || update.step !== 'filling' || update.status !== 'running'))) {
+      if (update.imageHashes !== undefined) {
+        if (!validHashes(update.imageHashes, job.assets.length) ||
+            (job.imageHashes !== undefined && !sameHashes(update.imageHashes, job.imageHashes)) ||
+            (job.imageHashes === undefined && (job.step !== 'uploading' || update.step !== 'filling' || update.status !== 'running'))) {
           throw new Error('图片指纹无效或已变化，请手动核对草稿')
         }
       }
-      if (update.status === 'running' && update.step === 'filling' && !job.imageHash && !update.imageHash) {
+      if (update.status === 'running' && update.step === 'filling' && !job.imageHashes && !update.imageHashes) {
         throw new Error('尚未核对上传图片，不能开始填写草稿')
       }
       if (update.status === 'saved') {
         const evidence = update.evidence
         if (job.status !== 'running' || job.step !== 'verifying' || update.step !== 'verifying' || !evidence ||
-            evidence.title !== job.title || evidence.body !== job.body || evidence.imageCount !== 1 ||
-            !job.imageHash || evidence.imageHash !== job.imageHash ||
+            evidence.title !== job.title || evidence.body !== job.body || evidence.imageCount !== job.assets.length ||
+            !job.imageHashes || !validHashes(evidence.imageHashes, job.assets.length) || !sameHashes(evidence.imageHashes, job.imageHashes) ||
             !['browser', 'account', 'unknown'].includes(evidence.storage) ||
             (job.platform === 'xiaohongshu' && evidence.storage !== 'browser') || !Number.isFinite(evidence.verifiedAt) ||
             evidence.verifiedAt < job.createdAt || evidence.verifiedAt > now() + 60_000) {
-          throw new Error('尚未重新打开并核对标题、正文和单张图片，不能标记保存成功')
+          throw new Error('尚未重新打开并核对标题、正文和全部有序图片，不能标记保存成功')
         }
-        job.evidence = { title: evidence.title, body: evidence.body, imageCount: 1, imageHash: evidence.imageHash, storage: evidence.storage, verifiedAt: evidence.verifiedAt }
+        job.evidence = { title: evidence.title, body: evidence.body, imageCount: job.assets.length, imageHashes: [...evidence.imageHashes], storage: evidence.storage, verifiedAt: evidence.verifiedAt }
       }
-      if (update.imageHash !== undefined) job.imageHash = update.imageHash
+      if (update.imageHashes !== undefined) job.imageHashes = [...update.imageHashes]
       if (update.blocker) job.blocker = update.blocker
       else delete job.blocker
       job.status = update.status

@@ -1,3 +1,5 @@
+import type { ImageAsset } from '../media'
+
 export async function fingerprintImage(image: HTMLImageElement | null): Promise<string> {
   if (!image?.isConnected || !image.complete || !image.naturalWidth || !image.naturalHeight) {
     throw new Error('图片尚未加载完成，无法核对，请检查后继续')
@@ -25,4 +27,19 @@ export async function fingerprintImage(image: HTMLImageElement | null): Promise<
   input.set(pixels, 8)
   const digest = await crypto.subtle.digest('SHA-256', input)
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')
+}
+
+export async function fingerprintSourceImage(asset: ImageAsset, root: Document): Promise<string> {
+  const image = root.createElement('img')
+  image.hidden = true
+  image.src = asset.dataUrl
+  root.body.append(image)
+  try {
+    await image.decode()
+    return await fingerprintImage(image)
+  } catch (error) {
+    throw new Error(`无法核对源图片「${asset.filename}」：${error instanceof Error ? error.message : '图片解码失败'}`)
+  } finally {
+    image.remove()
+  }
 }

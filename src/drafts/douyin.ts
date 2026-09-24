@@ -29,9 +29,11 @@ export function createDouyinAdapter(root: Document = document): PlatformAdapter 
     const title = unique(visible<HTMLInputElement>('input[placeholder="添加作品标题"]'), '标题输入框')
     const body = unique(visible<HTMLElement>('[contenteditable="true"][data-slate-editor="true"]'), '正文编辑框')
     if (!title || !body) return null
-    const images = visible<HTMLImageElement>('img').filter((image) => image.parentElement && hasClassPrefix(image.parentElement, 'img-'))
+    const images = visible<HTMLImageElement>('img').filter((image) =>
+      image.parentElement && hasClassPrefix(image.parentElement, 'img-') &&
+      !!(image.currentSrc || image.getAttribute('src')),
+    )
     const imageCount = images.length
-    const image = imageCount === 1 && images[0]!.complete && images[0]!.naturalWidth > 0 ? images[0]! : null
     const declaredCounts = new Set(visible<HTMLElement>('span, p, div').flatMap((element) => {
       const match = element.textContent?.trim().match(/^已添加\s*(\d+)\s*张图片$/)
       return match ? [Number(match[1])] : []
@@ -44,7 +46,7 @@ export function createDouyinAdapter(root: Document = document): PlatformAdapter 
     )
     const counter = unique(counters, '正文计数')
     const bodyLength = counter ? Number(counter.textContent!.split('/')[0]!.trim()) : null
-    return { title, body, bodyLength, imageCount, image }
+    return { title, body, bodyLength, imageCount, images }
   }
 
   return {

@@ -6,7 +6,7 @@ export interface DraftEditor {
   body: HTMLElement
   bodyLength?: number | null
   imageCount: number
-  image: HTMLImageElement | null
+  images: HTMLImageElement[]
 }
 
 export interface PlatformAdapter {

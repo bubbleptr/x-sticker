@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { openCardOverlay } from './overlay'
 import { renderCardPng } from '../render/card'
 import { buildStatusArticleHtml } from '../render/statusHtml'
+import { mockSuccessfulBrowserImages } from '../render/test-browser-images'
 
 vi.mock('../render/card', () => ({ renderCardPng: vi.fn() }))
 
@@ -21,6 +22,7 @@ function close() {
 }
 
 beforeEach(() => {
+  mockSuccessfulBrowserImages()
   stored = {}
   get.mockReset().mockImplementation(async () => structuredClone(stored))
   set.mockReset().mockImplementation(async (values) => { Object.assign(stored, structuredClone(values)) })

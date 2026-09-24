@@ -34,7 +34,7 @@ it('retains PNG bytes and task metadata after the background page is recreated',
       const { createDraftRepository } = await import(moduleUrl)
       const repository = createDraftRepository()
       await repository.saveAsset('image-1', new Blob([new Uint8Array([137, 80, 78, 71])], { type: 'image/png' }))
-      await repository.saveJobs([{ id: 'job-1', assetId: 'image-1', title: '跨重载草稿', platform: 'xiaohongshu', status: 'running', step: 'uploading' }])
+      await repository.saveJobs([{ id: 'job-1', assetId: 'image-1', filename: 'old-card.png', imageHash: 'a'.repeat(64), title: '跨重载草稿', platform: 'xiaohongshu', status: 'running', step: 'uploading' }, { id: 'saved-job', assetId: 'image-1', filename: 'old-card.png', imageHash: 'a'.repeat(64), status: 'saved', step: 'verifying', evidence: { title: '旧任务标题', body: '旧正文', imageCount: 1, imageHash: 'a'.repeat(64), storage: 'browser', verifiedAt: 123 } }])
     })()`)
     await page.reload()
     const restored = await page.evaluate(`(async () => {
@@ -44,7 +44,7 @@ it('retains PNG bytes and task metadata after the background page is recreated',
       const asset = await repository.getAsset('image-1')
       return { jobs: await repository.listJobs(), bytes: [...new Uint8Array(await asset.arrayBuffer())], mime: asset.type, missing: await repository.getAsset('missing') }
     })()`)
-    expect(restored).toMatchObject({ jobs: [{ id: 'job-1', title: '跨重载草稿', status: 'running' }], bytes: [137, 80, 78, 71], mime: 'image/png' })
+    expect(restored).toMatchObject({ jobs: [{ id: 'job-1', title: '跨重载草稿', status: 'running', step: 'uploading', assets: [{ id: 'image-1', filename: 'old-card.png', mimeType: 'image/png' }], imageHashes: ['a'.repeat(64)] }, { id: 'saved-job', status: 'saved', step: 'verifying', assets: [{ id: 'image-1', filename: 'old-card.png', mimeType: 'image/png' }], imageHashes: ['a'.repeat(64)], evidence: { title: '旧任务标题', body: '旧正文', imageCount: 1, imageHashes: ['a'.repeat(64)], storage: 'browser', verifiedAt: 123 } }], bytes: [137, 80, 78, 71], mime: 'image/png' })
     expect(restored).toHaveProperty('missing', undefined)
   } finally {
     await browser.close()

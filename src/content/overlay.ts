@@ -1,3 +1,4 @@
+import { encodeImageAsset, loadPostPhoto, type ImageAsset } from '../media'
 import { renderCardPng } from '../render/card'
 import { createPreviewController } from '../render/preview'
 import { BACKGROUND_PRESETS, BACKGROUND_PRESET_GROUPS } from '../popup/presets'
@@ -42,7 +43,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .preview-toolbar { display: flex; flex: 0 0 60px; align-items: center; justify-content: space-between; gap: 12px; padding: 0 24px; font-size: 13px; color: var(--muted); }
 .preview-viewport { display: flex; flex: 1; min-width: 0; min-height: 0; overflow: auto; margin: 0 24px; }
 canvas { display: block; flex: none; margin: auto; background: #fff; border-radius: 4px; box-shadow: 0 4px 20px #0f14191a; }
-.status { margin: 0; flex: 0 0 36px; padding: 9px 24px; font-size: 12px; color: var(--muted); }
+.status { margin: 0; min-height: 36px; padding: 9px 24px; font-size: 12px; color: var(--muted); }
 .status.error { color: var(--danger); }
 .inspector { min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 24px; border-left: 1px solid var(--line); display: flex; flex-direction: column; gap: 20px; }
 .inspector > * { flex-shrink: 0; }
@@ -66,6 +67,20 @@ canvas { display: block; flex: none; margin: auto; background: #fff; border-radi
 .background-group legend { font-size: 12px; color: var(--muted); }
 .preferences-status { margin: 0; color: var(--danger); font-size: 12px; }
 .download { width: 100%; }
+.gallery { display: flex; gap: 10px; overflow-x: auto; flex: none; padding: 12px 24px 4px; }
+.gallery-page { flex: 0 0 84px; min-width: 0; }
+.thumbnail { display: block; width: 84px; height: 72px; padding: 4px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--muted); font-size: 12px; overflow: hidden; }
+.thumbnail[aria-pressed="true"] { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
+.thumbnail img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.gallery-page[data-selected="false"] .thumbnail { opacity: 0.5; }
+.gallery-choice { display: flex; align-items: center; justify-content: center; gap: 5px; min-height: 40px; font-size: 12px; cursor: pointer; }
+.gallery-choice input { width: 16px; height: 16px; accent-color: var(--ink); margin: 0; }
+.gallery-cover-label { text-align: center; display: block; padding: 10px 0; font-size: 12px; }
+.preview-label { font-variant-numeric: tabular-nums; }
+.preview-empty { margin: auto; padding: 24px; max-width: 38ch; text-align: center; color: var(--muted); }
+.preview-empty p { margin: 0 0 12px; overflow-wrap: anywhere; }
+.preview-empty button { min-height: 40px; }
+.gallery-choice input:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 .progress-screen { flex: 1; min-height: 0; overflow: auto; padding: 32px; }
 .chip:has(input:focus-visible), button:focus-visible, .row input:focus-visible, .name-field input:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 @media (max-width: 760px) {
@@ -103,17 +118,19 @@ export function openCardOverlay(result: ScrapeResult): void {
         <div class="workspace">
           <section class="preview-wrap" aria-label="预览">
             <div class="preview-toolbar">
-              <span>贴图预览</span>
+              <span id="previewLabel" class="preview-label">贴图预览</span>
               <span>适应窗口</span>
             </div>
             <div id="previewViewport" class="preview-viewport">
-              <canvas id="preview" width="1080" height="1440" aria-label="贴图效果"></canvas>
+              <canvas id="preview" width="1080" height="1440" aria-label="贴图效果" hidden></canvas>
+              <div id="previewEmpty" class="preview-empty"><p id="previewMessage">正在准备图片…</p><button id="retryImage" class="quiet-button" type="button" hidden>重试加载</button></div>
             </div>
+            <div id="gallery" class="gallery" aria-label="图片预览与选择" inert></div>
             <p class="status" id="status" role="status"></p>
           </section>
           <aside class="inspector" aria-label="出图选项" aria-busy="true" inert>
             <section class="appearance" aria-label="贴图样式">
-            <h2 class="section-title">贴图样式</h2>
+            <h2 class="section-title">封面样式</h2>
             <div class="author-options">
               <label class="row"><input type="checkbox" id="showHandle" checked />显示账号</label>
               <label class="row"><input type="checkbox" id="showAuthor" checked />显示作者</label>
@@ -159,11 +176,28 @@ export function openCardOverlay(result: ScrapeResult): void {
   const previewController = createPreviewController(preview, q<HTMLElement>('#previewViewport'))
 
   const post: PostText | null = result.ok ? result.post : null
-  let pngBytes: Uint8Array | null = null
+  const hasCover = Boolean(post?.text.trim())
+  type Page = { id: string; label: string; selected: boolean; image: ImageAsset | null; loading: boolean; error: string }
+  const pages: Page[] = [
+    ...(hasCover ? [{ id: 'cover', label: '文字封面', selected: true, image: null, loading: true, error: '' }] : []),
+    ...(post?.photos ?? []).map((_, index) => ({ id: `photo-${index}`, label: `配图 ${index + 1}`, selected: true, image: null, loading: true, error: '' })),
+  ]
+  let activePage = pages[0]
+  let paintedImage: ImageAsset | null = null
+  let pendingImage: ImageAsset | null = null
+  let paintToken = 0
+  let exportImages: ImageAsset[] | null = null
+  let downloading = false
+  const gallery = q<HTMLElement>('#gallery')
+  const previewEmpty = q<HTMLElement>('#previewEmpty')
+  const previewMessage = q<HTMLElement>('#previewMessage')
+  const retryImage = q<HTMLButtonElement>('#retryImage')
+  gallery.hidden = !post?.photos?.length
+  q<HTMLElement>('.appearance').hidden = !hasCover
   let selectedBgId = DEFAULT_INSPECTOR_PREFERENCES.backgroundId
   let renderToken = 0
   let nameRenderTimer: ReturnType<typeof setTimeout> | undefined
-  const filename = `x-sticker-${Date.now()}.png`
+  const filename = `x-sticker-${Date.now()}.zip`
   const failedPreferences = new Set<keyof InspectorPreferences>()
   const persistPreferences = (patch: Partial<InspectorPreferences>) => {
     const fields = Object.keys(patch) as (keyof InspectorPreferences)[]
@@ -184,7 +218,7 @@ export function openCardOverlay(result: ScrapeResult): void {
       progressScreen.hidden = view !== 'progress'
     },
   })
-  const syncDraftSnapshot = () => composer.setSnapshot(post ? { post, bytes: pngBytes, filename } : null)
+  const syncDraftSnapshot = () => composer.setSnapshot(post ? { post, images: exportImages } : null)
   syncDraftSnapshot()
 
   const setStatus = (text: string, isError = false) => {
@@ -204,37 +238,146 @@ export function openCardOverlay(result: ScrapeResult): void {
     }
   }
 
-  const invalidatePreview = () => {
-    pngBytes = null
-    downloadBtn.disabled = true
+  const showActivePage = () => {
+    const page = activePage
+    const image = page?.image
+    const painted = Boolean(image && image === paintedImage && !pendingImage)
+    preview.hidden = !painted
+    previewEmpty.hidden = painted
+    previewMessage.textContent = page?.error || (page?.loading || image ? '正在加载图片…' : '这条帖子没有可用的文字或静态图片。')
+    retryImage.hidden = !activePage?.error
+    q<HTMLElement>('#previewLabel').textContent = activePage
+      ? `${activePage.label} · ${pages.indexOf(activePage) + 1} / ${pages.length}` : '贴图预览'
+    if (image && image !== pendingImage && (image !== paintedImage || pendingImage)) {
+      const token = ++paintToken
+      pendingImage = image
+      void previewController.paint(image.dataUrl).then((drawn) => {
+        if (token !== paintToken || !host.isConnected) return
+        pendingImage = null
+        if (drawn) paintedImage = image
+        showActivePage()
+      }).catch((error: unknown) => {
+        if (token !== paintToken || !host.isConnected) return
+        pendingImage = null
+        paintedImage = null
+        page.image = null
+        page.error = error instanceof Error ? error.message : '图片预览失败，请重试'
+        syncImages()
+      })
+    }
+    for (const page of pages) {
+      const item = gallery.querySelector<HTMLElement>(`[data-page-id="${page.id}"]`)!
+      item.dataset.selected = String(page.selected)
+      const button = item.querySelector<HTMLButtonElement>('.thumbnail')!
+      button.setAttribute('aria-pressed', String(page === activePage))
+      button.setAttribute('aria-label', `查看${page.label}${page.error ? '，加载失败' : ''}`)
+      const thumb = button.querySelector('img')!
+      const placeholder = button.querySelector('span')!
+      if (page.image && thumb.getAttribute('src') !== page.image.dataUrl) thumb.src = page.image.dataUrl
+      thumb.hidden = !page.image
+      placeholder.hidden = Boolean(page.image)
+      placeholder.textContent = page.error ? '加载失败' : '加载中…'
+    }
+  }
+
+  const syncImages = () => {
+    const selected = pages.filter((page) => page.selected)
+    const ready = selected.length > 0 && selected.every((page) => page.image)
+    exportImages = ready ? selected.map((page, index) => ({
+      ...page.image!, filename: `${String(index + 1).padStart(2, '0')}-${page.id === 'cover' ? 'cover' : 'photo'}.${page.image!.mimeType.split('/')[1]!.replace('jpeg', 'jpg')}`,
+    })) : null
+    downloadBtn.disabled = !ready || downloading
+    downloadBtn.textContent = downloading ? '准备下载…' : selected.length > 1 ? '下载整组（ZIP）' : '下载图片'
     syncDraftSnapshot()
+    const failed = selected.find((page) => page.error)
+    if (failed) setStatus(`${failed.label}加载失败，${failed.id === 'cover' ? '请重试。' : '请重试或取消勾选。'}`, true)
+    else if (!selected.length) setStatus('请至少选择一张图片。')
+    else if (!ready) setStatus('正在准备所选图片…')
+    else setStatus(pages.length > 1 ? `已选 ${selected.length} 张，按封面、配图顺序输出` : '预览就绪')
+    showActivePage()
+  }
+
+  const invalidatePreview = () => {
+    const cover = pages.find((page) => page.id === 'cover')
+    if (cover) { cover.image = null; cover.loading = true; cover.error = '' }
+    syncImages()
     return ++renderToken
   }
 
   const refreshPreview = async () => {
     clearTimeout(nameRenderTimer)
+    const cover = pages.find((page) => page.id === 'cover')
+    if (!post || !cover) { syncImages(); return }
     const token = invalidatePreview()
-    if (!post) {
-      return
-    }
-    setStatus('渲染中…')
     try {
       const customName = customNameEl.value.trim()
       const renderedPost = customName ? { ...post, authorDisplayName: customName } : post
       const bytes = await renderCardPng(renderedPost, currentOptions())
       if (token !== renderToken || !host.isConnected) return
-      pngBytes = bytes
-      syncDraftSnapshot()
-      previewController.paint(bytes)
-      downloadBtn.disabled = false
-      setStatus('预览就绪')
+      cover.image = encodeImageAsset(bytes, 'image/png', '01-cover.png')
     } catch (err) {
       if (token !== renderToken || !host.isConnected) return
-      pngBytes = null
-      downloadBtn.disabled = true
-      setStatus(err instanceof Error ? err.message : '渲染失败', true)
+      cover.error = err instanceof Error ? err.message : '封面生成失败'
     }
+    cover.loading = false
+    syncImages()
   }
+
+  const loadPhoto = async (page: Page) => {
+    const index = Number(page.id.slice('photo-'.length))
+    const photo = post?.photos?.[index]
+    if (!photo) return
+    page.loading = true
+    page.error = ''
+    syncImages()
+    try {
+      const image = await loadPostPhoto(photo.url, `photo-${index + 1}`)
+      if (!host.isConnected) return
+      page.image = image
+    } catch (err) {
+      if (!host.isConnected) return
+      page.error = err instanceof Error ? err.message : '图片加载失败'
+    }
+    page.loading = false
+    syncImages()
+  }
+
+  for (const page of pages) {
+    const item = document.createElement('div')
+    item.className = 'gallery-page'
+    item.dataset.pageId = page.id
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.className = 'thumbnail'
+    const image = document.createElement('img')
+    image.alt = ''
+    image.hidden = true
+    const placeholder = document.createElement('span')
+    button.append(image, placeholder)
+    button.addEventListener('click', () => { activePage = page; showActivePage() })
+    item.append(button)
+    if (page.id === 'cover') {
+      const label = document.createElement('span')
+      label.className = 'gallery-cover-label'
+      label.textContent = '文字封面'
+      item.append(label)
+    } else {
+      const label = document.createElement('label')
+      label.className = 'gallery-choice'
+      const checkbox = document.createElement('input')
+      checkbox.type = 'checkbox'
+      checkbox.checked = true
+      checkbox.addEventListener('change', () => { page.selected = checkbox.checked; syncImages() })
+      label.append(checkbox, page.label)
+      item.append(label)
+    }
+    gallery.append(item)
+  }
+  retryImage.addEventListener('click', () => {
+    if (!activePage || activePage.loading) return
+    if (activePage.id === 'cover') void refreshPreview()
+    else void loadPhoto(activePage)
+  })
 
   const updateBackgroundSelection = () => {
     for (const button of bgPresetsEl.querySelectorAll<HTMLButtonElement>('.preset')) {
@@ -268,16 +411,27 @@ export function openCardOverlay(result: ScrapeResult): void {
   updateBackgroundSelection()
 
   const downloadPng = async () => {
-    if (!pngBytes || !post) return
-    const response = (await chrome.runtime.sendMessage({
-      type: 'DOWNLOAD_PNG',
-      bytes: Array.from(pngBytes),
-      filename,
-    } satisfies KatieMessage)) as KatieMessage
-    if (!host.isConnected) return
-    if (response?.type === 'DOWNLOAD_OK') setStatus('已开始下载')
-    else if (response?.type === 'DOWNLOAD_ERR') setStatus(response.message, true)
-    else setStatus('下载失败', true)
+    if (!exportImages || !post || downloading) return
+    const images = exportImages.map((image) => ({ ...image }))
+    downloading = true
+    syncImages()
+    try {
+      const response = (await chrome.runtime.sendMessage({
+        type: 'DOWNLOAD_IMAGES', images, filename,
+      } satisfies KatieMessage)) as KatieMessage
+      if (!host.isConnected) return
+      if (response?.type === 'DOWNLOAD_OK') setStatus('已开始下载')
+      else if (response?.type === 'DOWNLOAD_ERR') setStatus(response.message, true)
+      else setStatus('下载失败', true)
+    } catch (error) {
+      if (host.isConnected) setStatus(error instanceof Error ? error.message : '下载失败', true)
+    } finally {
+      downloading = false
+      if (host.isConnected) {
+        downloadBtn.disabled = !exportImages
+        downloadBtn.textContent = (exportImages?.length ?? 0) > 1 ? '下载整组（ZIP）' : '下载图片'
+      }
+    }
   }
 
   const ac = new AbortController()
@@ -339,7 +493,7 @@ export function openCardOverlay(result: ScrapeResult): void {
   document.documentElement.appendChild(host)
   sheet.focus()
 
-  setStatus(post ? '正在读取偏好…' : '这条贴没有文字', !post)
+  setStatus(post ? '正在读取偏好…' : '这条帖子没有可用的文字或静态图片。', !post)
   void loadInspectorPreferences().then((preferences) => {
     if (!host.isConnected) return
     showHandleEl.checked = preferences.showHandle
@@ -356,7 +510,9 @@ export function openCardOverlay(result: ScrapeResult): void {
   }).finally(() => {
     if (!host.isConnected) return
     inspector.inert = false
+    gallery.inert = false
     inspector.removeAttribute('aria-busy')
     void refreshPreview()
+    for (const page of pages.filter((page) => page.id !== 'cover')) void loadPhoto(page)
   })
 }
