@@ -41,10 +41,16 @@ function imageReady(editor: DraftEditor): boolean {
   return editor.imageCount === 1 && !!editor.image?.isConnected && editor.image.complete && editor.image.naturalWidth > 0 && editor.image.naturalHeight > 0
 }
 
-function matches(editor: DraftEditor, job: DraftJob): boolean {
-  return imageReady(editor) && normalizeText(editor.title.value) === normalizeText(job.title) &&
-    (editor.titleEcho === undefined || (editor.titleEcho !== null && normalizeText(editor.titleEcho) === normalizeText(job.title))) &&
-    readBody(editor.body) === normalizeText(job.body)
+function pendingContent(editor: DraftEditor, job: DraftJob): string | null {
+  if (!imageReady(editor)) return '单张图片'
+  if (normalizeText(editor.title.value) !== normalizeText(job.title)) return '完整标题'
+  if (editor.titleEcho !== undefined && (editor.titleEcho === null || normalizeText(editor.titleEcho) !== normalizeText(job.title))) return '平台标题预览'
+  if (readBody(editor.body) !== normalizeText(job.body)) return '完整正文'
+  const expectedBodyLength = job.body.replace(/\r\n?/g, '\n').length
+  if (editor.bodyLength !== undefined && editor.bodyLength !== expectedBodyLength) {
+    return `正文计数（当前 ${editor.bodyLength ?? '未识别'}，应为 ${expectedBodyLength}）`
+  }
+  return null
 }
 
 export async function runDraft(
@@ -151,6 +157,17 @@ export async function runDraft(
       if (await fingerprintImage(editor.image) !== imageHash) throw new Error('草稿图片与本次贴图不一致，请手动核对')
       checkAccount()
     }
+    const waitForContent = (saved: boolean) => {
+      let pending = '贴图内容'
+      return waitForValue(() => {
+        const editor = adapter.getEditor()
+        if (!editor) return null
+        const missing = pendingContent(editor, job)
+        if (!missing) return editor
+        pending = missing
+        return null
+      }, () => `${saved ? '已保存的' : '平台确认的'}${pending}`, options.timeout, signal)
+    }
     if (step !== 'saving' && step !== 'verifying') {
       const editor = await waitForValue(() => {
         const current = adapter.getEditor()
@@ -173,16 +190,19 @@ export async function runDraft(
         editor.title.blur()
       }
       if (!body && job.body) {
-        editor.body.focus()
-        const range = root.createRange()
-        range.selectNodeContents(editor.body)
-        const selection = root.getSelection()
-        selection?.removeAllRanges()
-        selection?.addRange(range)
-        if (!root.execCommand?.('insertText', false, job.body)) throw new Error('正文编辑器不支持自动填写，请手动接手')
+        if (adapter.fillBody) adapter.fillBody(editor.body, job.body)
+        else {
+          editor.body.focus()
+          const range = root.createRange()
+          range.selectNodeContents(editor.body)
+          const selection = root.getSelection()
+          selection?.removeAllRanges()
+          selection?.addRange(range)
+          if (!root.execCommand?.('insertText', false, job.body)) throw new Error('正文编辑器不支持自动填写，请手动接手')
+        }
       }
       writing = false
-      const filled = await waitForValue(() => { const current = adapter.getEditor(); return current && matches(current, job) ? current : null }, '完整贴图内容及平台标题预览', options.timeout, signal)
+      const filled = await waitForContent(false)
       await verifyImage(filled)
       checkAccount()
       await publish({ status: 'running', step: 'saving', account, message: '正在保存草稿' })
@@ -193,7 +213,7 @@ export async function runDraft(
     await publish({ status: 'running', step: 'verifying', account, message: '正在重新打开草稿核对' })
     signal.throwIfAborted()
     await adapter.reopenDraft(job, signal)
-    const reopened = await waitForValue(() => { const current = adapter.getEditor(); return current && matches(current, job) ? current : null }, '已保存的贴图内容', options.timeout, signal)
+    const reopened = await waitForContent(true)
     await verifyImage(reopened)
     checkAccount()
     return await publish({

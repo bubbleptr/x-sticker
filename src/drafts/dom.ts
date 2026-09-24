@@ -1,6 +1,6 @@
 const SAVE_LABELS = new Set(['保存草稿', '存草稿', '暂存离开'])
 
-export function waitForValue<T>(read: () => T | null | undefined | false, label: string, timeout = 30000, signal?: AbortSignal): Promise<T> {
+export function waitForValue<T>(read: () => T | null | undefined | false, label: string | (() => string), timeout = 30000, signal?: AbortSignal): Promise<T> {
   return new Promise((resolve, reject) => {
     signal?.throwIfAborted()
     const finish = (error?: unknown, value?: T) => {
@@ -19,7 +19,7 @@ export function waitForValue<T>(read: () => T | null | undefined | false, label:
       } catch (error) { finish(error) }
     }
     const observer = new MutationObserver(check)
-    const timer = setTimeout(() => finish(new Error(`等待${label}超时，请打开后台接手`)), timeout)
+    const timer = setTimeout(() => finish(new Error(`等待${typeof label === 'function' ? label() : label}超时，请打开后台接手`)), timeout)
     // Image decode and input properties may change without a DOM mutation.
     const poll = setInterval(check, 250)
     signal?.addEventListener('abort', abort, { once: true })

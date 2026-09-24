@@ -258,6 +258,25 @@ describe('draft runner', () => {
     expect(context.updates.some((update) => update.status === 'saved')).toBe(false)
   })
 
+  it('identifies a missing description after saving instead of reporting a generic verification timeout', async () => {
+    const context = setup({ reopenDraft: vi.fn(async () => { context.body.textContent = '' }) })
+    const result = await runDraft(job, [], context.adapter, context.report, { timeout: 5 })
+    expect(result).toMatchObject({ status: 'needs_attention', step: 'verifying' })
+    expect(result.message).toContain('正文')
+    expect(result.evidence).toBeUndefined()
+    expect(context.adapter.saveDraft).toHaveBeenCalledOnce()
+  })
+
+  it('compares the platform count with the pasted text, including intentional invisible characters', async () => {
+    const text = '第一段\u200b\n第二段\ufeff 👩‍💻'
+    const context = setup()
+    const getEditor = context.adapter.getEditor
+    context.adapter.getEditor = () => ({ ...getEditor()!, bodyLength: context.body.textContent?.length ?? 0 })
+    const result = await runDraft({ ...job, body: text }, [], context.adapter, context.report, { timeout: 5 })
+    expect(result).toMatchObject({ status: 'saved', evidence: { body: text } })
+    expect(context.adapter.saveDraft).toHaveBeenCalledOnce()
+  })
+
   it('interrupts a pending platform operation when a new dialog appears', async () => {
     const context = setup({ saveDraft: vi.fn(async (signal) => {
       const dialog = document.createElement('div')

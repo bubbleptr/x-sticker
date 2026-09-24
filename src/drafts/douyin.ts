@@ -38,7 +38,13 @@ export function createDouyinAdapter(root: Document = document): PlatformAdapter 
     }))
     if (declaredCounts.size > 1) throw new Error('抖音图片数量提示不一致，请手动接手')
     if (declaredCounts.size && !declaredCounts.has(imageCount)) return null
-    return { title, body, imageCount, image }
+    const toolbar = body.closest('.editor-kit-root-container')?.querySelector('.toolbar')
+    const counters = Array.from(toolbar?.querySelectorAll('div, span') ?? []).filter((element) =>
+      element.children.length === 0 && isVisible(element) && /^\s*\d+\s*\/\s*1000\s*$/.test(element.textContent ?? ''),
+    )
+    const counter = unique(counters, '正文计数')
+    const bodyLength = counter ? Number(counter.textContent!.split('/')[0]!.trim()) : null
+    return { title, body, bodyLength, imageCount, image }
   }
 
   return {
@@ -58,6 +64,25 @@ export function createDouyinAdapter(root: Document = document): PlatformAdapter 
     getEditor,
     hasExistingDraft,
     dismissGuide() {},
+    fillBody(body, text) {
+      const leaf = unique(Array.from(body.querySelectorAll('[data-string="true"]')).filter(isVisible), '正文输入位置')
+      const node = leaf?.firstChild
+      if (!node || node.nodeType !== Node.TEXT_NODE || node.textContent?.replace(/[\u200b\ufeff]/g, '')) {
+        throw new Error('无法确认抖音的空白正文输入位置，请手动接手')
+      }
+      body.focus()
+      // Keep editor-kit's line/leaf structure and let its paste handler update the model.
+      const range = root.createRange()
+      range.setStart(node, 0)
+      range.collapse(true)
+      const selection = root.getSelection()
+      if (!selection) throw new Error('无法定位抖音正文光标，请手动接手')
+      selection.removeAllRanges()
+      selection.addRange(range)
+      const clipboardData = new DataTransfer()
+      clipboardData.setData('text/plain', text)
+      body.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData }))
+    },
     async saveDraft(signal) {
       const button = await waitForValue(() => findSaveDraftButton(root), '抖音暂存离开按钮', undefined, signal)
       if (button.textContent?.replace(/\s+/g, '') !== '暂存离开') {
