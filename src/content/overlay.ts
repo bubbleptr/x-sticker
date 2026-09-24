@@ -1,5 +1,6 @@
 import { renderCardPng } from '../render/card'
 import { BACKGROUND_PRESETS } from '../popup/presets'
+import { createDraftComposer } from '../drafts/composer'
 import {
   DEFAULT_RENDER_OPTIONS,
   type AspectRatio,
@@ -13,6 +14,7 @@ const HOST_ID = 'katie-card-overlay'
 
 const CSS = `
 :host { all: initial; }
+*, *::before, *::after { box-sizing: border-box; }
 .scrim {
   position: absolute;
   inset: 0;
@@ -25,8 +27,9 @@ const CSS = `
 }
 .sheet {
   width: min(760px, calc(100vw - 32px));
-  max-height: min(92vh, 680px);
+  max-height: calc(100dvh - 32px);
   overflow: auto;
+  overscroll-behavior: contain;
   background: #ffffff;
   border-radius: 16px;
   box-shadow: 0 16px 48px rgba(15, 20, 25, 0.28);
@@ -35,11 +38,12 @@ const CSS = `
   flex-direction: column;
   gap: 12px;
 }
+.sheet > * { flex-shrink: 0; }
 .workspace {
   display: flex;
   align-items: stretch;
   gap: 16px;
-  min-height: 480px;
+  min-height: 0;
 }
 .preview-wrap {
   flex: 1 1 auto;
@@ -97,7 +101,7 @@ canvas {
   width: auto;
   height: auto;
   max-width: 100%;
-  max-height: 520px;
+  max-height: min(32vh, 300px);
   background: #fff;
   border-radius: 12px;
   box-shadow: 0 8px 24px rgba(15, 20, 25, 0.12);
@@ -116,6 +120,13 @@ canvas {
   cursor: pointer;
 }
 .download:disabled { opacity: 0.45; cursor: not-allowed; }
+.chip:has(input:focus-visible), button:focus-visible { outline: 2px solid #1d9bf0; outline-offset: 3px; }
+@media (max-width: 620px) {
+  .sheet { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); padding: 12px; }
+  .workspace { flex-direction: column; }
+  .inspector { width: auto; flex-basis: auto; }
+  canvas { max-height: 220px; }
+}
 `
 
 let closeCurrent: (() => void) | null = null
@@ -175,6 +186,7 @@ export function openCardOverlay(result: ScrapeResult): void {
             <button type="button" class="download" id="download" disabled>下载 PNG</button>
           </aside>
         </div>
+        <section id="draftComposer"></section>
       </div>
     </div>`
 
@@ -192,6 +204,10 @@ export function openCardOverlay(result: ScrapeResult): void {
   let pngBytes: Uint8Array | null = null
   let selectedBgId = BACKGROUND_PRESETS[0]!.id
   let renderToken = 0
+  const filename = `x-sticker-${Date.now()}.png`
+  const composer = createDraftComposer(q<HTMLElement>('#draftComposer'))
+  const syncDraftSnapshot = () => composer.setSnapshot(post ? { post, bytes: pngBytes, filename } : null)
+  syncDraftSnapshot()
 
   const setStatus = (text: string, isError = false) => {
     statusEl.textContent = text
@@ -211,9 +227,10 @@ export function openCardOverlay(result: ScrapeResult): void {
   }
 
   const refreshPreview = async () => {
+    pngBytes = null
+    downloadBtn.disabled = true
+    syncDraftSnapshot()
     if (!post) {
-      downloadBtn.disabled = true
-      pngBytes = null
       return
     }
     const token = ++renderToken
@@ -222,6 +239,7 @@ export function openCardOverlay(result: ScrapeResult): void {
       const bytes = await renderCardPng(post, currentOptions())
       if (token !== renderToken || !host.isConnected) return
       pngBytes = bytes
+      syncDraftSnapshot()
       paintPreview(preview, bytes)
       downloadBtn.disabled = false
       setStatus('预览就绪')
@@ -254,7 +272,7 @@ export function openCardOverlay(result: ScrapeResult): void {
     const response = (await chrome.runtime.sendMessage({
       type: 'DOWNLOAD_PNG',
       bytes: Array.from(pngBytes),
-      filename: `x-sticker-${Date.now()}.png`,
+      filename,
     } satisfies KatieMessage)) as KatieMessage
     if (!host.isConnected) return
     if (response?.type === 'DOWNLOAD_OK') setStatus('已开始下载')
@@ -265,6 +283,7 @@ export function openCardOverlay(result: ScrapeResult): void {
   const ac = new AbortController()
   const close = () => {
     ac.abort()
+    composer.destroy()
     host.remove()
     if (closeCurrent === close) closeCurrent = null
   }

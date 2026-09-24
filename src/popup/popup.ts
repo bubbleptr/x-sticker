@@ -8,6 +8,7 @@ import {
 } from '../types'
 import { renderCardPng } from '../render/card'
 import { BACKGROUND_PRESETS } from './presets'
+import { createDraftComposer } from '../drafts/composer'
 
 const statusEl = document.getElementById('status') as HTMLParagraphElement
 const hideHandleEl = document.getElementById('hideHandle') as HTMLInputElement
@@ -20,6 +21,12 @@ let post: PostText | null = null
 let pngBytes: Uint8Array | null = null
 let selectedBgId = BACKGROUND_PRESETS[0]!.id
 let renderToken = 0
+const filename = `x-sticker-${Date.now()}.png`
+const composer = createDraftComposer(document.getElementById('draftComposer')!)
+
+function syncDraftSnapshot(): void {
+  composer.setSnapshot(post ? { post, bytes: pngBytes, filename } : null)
+}
 
 function setStatus(text: string, isError = false): void {
   statusEl.textContent = text
@@ -62,9 +69,10 @@ function paintPreview(bytes: Uint8Array): void {
 }
 
 async function refreshPreview(): Promise<void> {
+  pngBytes = null
+  downloadBtn.disabled = true
+  syncDraftSnapshot()
   if (!post) {
-    downloadBtn.disabled = true
-    pngBytes = null
     return
   }
   const token = ++renderToken
@@ -74,6 +82,7 @@ async function refreshPreview(): Promise<void> {
     const bytes = await renderCardPng(post, options)
     if (token !== renderToken) return
     pngBytes = bytes
+    syncDraftSnapshot()
     paintPreview(bytes)
     downloadBtn.disabled = false
     setStatus('预览就绪')
@@ -111,6 +120,7 @@ async function scrapeActiveTab(): Promise<void> {
   downloadBtn.disabled = true
   post = null
   pngBytes = null
+  syncDraftSnapshot()
 
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
   if (!tab?.id || !tab.url) {
@@ -153,7 +163,6 @@ async function scrapeActiveTab(): Promise<void> {
 
 async function downloadPng(): Promise<void> {
   if (!pngBytes || !post) return
-  const filename = `x-sticker-${Date.now()}.png`
   const response = (await chrome.runtime.sendMessage({
     type: 'DOWNLOAD_PNG',
     bytes: Array.from(pngBytes),
@@ -180,4 +189,5 @@ function bindControls(): void {
 
 bindPresets()
 bindControls()
+window.addEventListener('pagehide', () => composer.destroy(), { once: true })
 void scrapeActiveTab()

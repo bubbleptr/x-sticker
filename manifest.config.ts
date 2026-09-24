@@ -5,8 +5,8 @@ export default defineManifest({
   manifest_version: 3,
   name: 'X Sticker',
   short_name: 'X Sticker',
-  description: '把 X/Twitter 文字贴转成竖版引用图并下载 PNG',
-  version: '0.1.0',
+  description: '把 X/Twitter 文字贴转成竖版 PNG，并存到小红书、抖音草稿，最终发布由你完成',
+  version: '0.2.0',
   action: {
     default_popup: 'src/popup/index.html',
     default_title: 'X Sticker',
@@ -21,13 +21,20 @@ export default defineManifest({
       js: ['src/content/index.ts'],
       run_at: 'document_idle',
     },
+    {
+      matches: ['https://creator.xiaohongshu.com/*', 'https://creator.douyin.com/*'],
+      js: ['src/drafts/creator.ts'],
+      run_at: 'document_idle',
+    },
   ],
-  permissions: ['activeTab', 'downloads'],
+  permissions: ['activeTab', 'downloads', 'storage'],
   host_permissions: [
     'https://x.com/*',
     'https://twitter.com/*',
     'https://pbs.twimg.com/*',
     'https://abs.twimg.com/*',
+    'https://creator.xiaohongshu.com/*',
+    'https://creator.douyin.com/*',
   ],
   web_accessible_resources: [
     {
