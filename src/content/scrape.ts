@@ -13,13 +13,20 @@ function statusIdFromUrl(url: string): string | undefined {
   return m?.[1]
 }
 
+function queryOwn(article: Element, selector: string): Element | null {
+  for (const node of Array.from(article.querySelectorAll(selector))) {
+    if (node.closest('article') === article) return node
+  }
+  return null
+}
+
 function isPromoted(article: Element): boolean {
   const text = article.textContent ?? ''
   return /Promoted|Ad|推广|广告/.test(text) && !!article.querySelector('[data-testid="placementTracking"]')
 }
 
 function extractTweetText(article: Element): string {
-  const textRoot = article.querySelector('[data-testid="tweetText"]')
+  const textRoot = queryOwn(article, '[data-testid="tweetText"]')
   if (!textRoot) return ''
 
   const parts: string[] = []
@@ -50,7 +57,7 @@ function extractAuthor(article: Element): {
   avatarUrl?: string
   verified?: boolean
 } {
-  const userName = article.querySelector('[data-testid="User-Name"]')
+  const userName = queryOwn(article, '[data-testid="User-Name"]')
   let authorDisplayName: string | undefined
   let handle: string | undefined
 
@@ -75,13 +82,12 @@ function extractAuthor(article: Element): {
   }
 
   const avatarImg =
-    (article.querySelector('[data-testid="Tweet-User-Avatar"] img') as HTMLImageElement | null) ??
-    (article.querySelector('img[src*="profile_images"]') as HTMLImageElement | null)
+    (queryOwn(article, '[data-testid="Tweet-User-Avatar"] img') as HTMLImageElement | null) ??
+    (queryOwn(article, 'img[src*="profile_images"]') as HTMLImageElement | null)
   const avatarUrl = avatarImg?.src || undefined
 
   const verified = Boolean(
-    article.querySelector('[data-testid="icon-verified"]') ||
-      article.querySelector('svg[data-testid="icon-verified"]') ||
+    queryOwn(article, '[data-testid="icon-verified"]') ||
       userName?.querySelector('[aria-label*="Verified" i]') ||
       userName?.querySelector('[aria-label*="认证" i]'),
   )
@@ -90,7 +96,7 @@ function extractAuthor(article: Element): {
 }
 
 function extractCreatedAt(article: Element): string | undefined {
-  const time = article.querySelector('time')
+  const time = queryOwn(article, 'time')
   const datetime = time?.getAttribute('datetime')
   if (!datetime) return undefined
   const d = new Date(datetime)
@@ -136,7 +142,7 @@ function buttonState(
   testIds: string[],
 ): { count?: number; active: boolean; label: string } {
   for (const id of testIds) {
-    const el = article.querySelector(`[data-testid="${id}"]`) as HTMLElement | null
+    const el = queryOwn(article, `[data-testid="${id}"]`)
     if (!el) continue
     const label =
       el.getAttribute('aria-label') ||
@@ -164,8 +170,8 @@ function extractStats(article: Element): {
 
   let views: number | undefined
   const analytics =
-    (article.querySelector('a[href*="/analytics"]') as HTMLElement | null) ||
-    (article.querySelector('[aria-label*="View" i], [aria-label*="次查看" i], [aria-label*="views" i]') as HTMLElement | null)
+    queryOwn(article, 'a[href*="/analytics"]') ||
+    queryOwn(article, '[aria-label*="View" i], [aria-label*="次查看" i], [aria-label*="views" i]')
   if (analytics) {
     views = parseCountLabel(
       analytics.getAttribute('aria-label') || analytics.textContent || '',
@@ -173,7 +179,7 @@ function extractStats(article: Element): {
   }
   if (views === undefined) {
     // Fallback: group with views icon
-    const group = article.querySelector('[role="group"]')
+    const group = queryOwn(article, '[role="group"]')
     if (group) {
       const labeled = Array.from(group.querySelectorAll('[aria-label]'))
       for (const el of labeled) {
@@ -230,11 +236,21 @@ function pickArticle(doc: Document, pageUrl: string): Element | null {
   return pool[0] ?? null
 }
 
-/** Parse/validate at the scrape boundary; never return empty text. */
-export function scrapePostText(doc: Document = document, pageUrl: string = location.href): ScrapeResult {
-  const article = pickArticle(doc, pageUrl)
-  if (!article) return { ok: false, reason: 'no_text_post' }
+export function articleStatusUrl(article: Element, fallback: string): string {
+  for (const time of Array.from(article.querySelectorAll('time'))) {
+    if (time.closest('article') !== article) continue
+    const href = time.closest('a')?.getAttribute('href')
+    if (!href || !href.includes('/status/')) continue
+    try {
+      return new URL(href, fallback).href.split('?')[0]!
+    } catch {
+      continue
+    }
+  }
+  return fallback.split('?')[0]!
+}
 
+export function scrapeArticle(article: Element, pageUrl: string): ScrapeResult {
   const text = extractTweetText(article)
   if (!text) return { ok: false, reason: 'no_text_post' }
 
@@ -257,4 +273,10 @@ export function scrapePostText(doc: Document = document, pageUrl: string = locat
   }
 
   return { ok: true, post }
+}
+
+export function scrapePostText(doc: Document = document, pageUrl: string = location.href): ScrapeResult {
+  const article = pickArticle(doc, pageUrl)
+  if (!article) return { ok: false, reason: 'no_text_post' }
+  return scrapeArticle(article, pageUrl)
 }
