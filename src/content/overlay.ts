@@ -150,9 +150,9 @@ export function openCardOverlay(result: ScrapeResult): void {
   const shadow = host.attachShadow({ mode: 'open' })
   shadow.innerHTML = `<style>${CSS}</style>
     <div class="scrim" id="scrim">
-      <div class="sheet" id="sheet" role="dialog" aria-label="卡贴" tabindex="-1">
+      <div class="sheet" id="sheet" role="dialog" aria-label="X Sticker" tabindex="-1">
         <div class="head">
-          <h1 class="brand">卡贴</h1>
+          <h1 class="brand">X Sticker</h1>
           <button type="button" class="close" id="close">关闭</button>
         </div>
         <div class="workspace">
@@ -254,7 +254,7 @@ export function openCardOverlay(result: ScrapeResult): void {
     const response = (await chrome.runtime.sendMessage({
       type: 'DOWNLOAD_PNG',
       bytes: Array.from(pngBytes),
-      filename: `katie-${Date.now()}.png`,
+      filename: `x-sticker-${Date.now()}.png`,
     } satisfies KatieMessage)) as KatieMessage
     if (!host.isConnected) return
     if (response?.type === 'DOWNLOAD_OK') setStatus('已开始下载')

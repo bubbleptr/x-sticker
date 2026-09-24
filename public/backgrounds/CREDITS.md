@@ -1,6 +1,6 @@
 # Background photo credits (Unsplash License)
 
-Bundled as outer-frame presets for Katie (卡贴). Do not hotlink at runtime.
+Bundled as outer-frame presets for X Sticker. Do not hotlink at runtime.
 
 | id | file | Unsplash photo | scene |
 |----|------|----------------|-------|

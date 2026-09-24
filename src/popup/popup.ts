@@ -153,7 +153,7 @@ async function scrapeActiveTab(): Promise<void> {
 
 async function downloadPng(): Promise<void> {
   if (!pngBytes || !post) return
-  const filename = `katie-${Date.now()}.png`
+  const filename = `x-sticker-${Date.now()}.png`
   const response = (await chrome.runtime.sendMessage({
     type: 'DOWNLOAD_PNG',
     bytes: Array.from(pngBytes),

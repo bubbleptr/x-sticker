@@ -1,8 +1,8 @@
 {
-  "name": "katie",
+  "name": "x-sticker",
   "version": "0.1.0",
   "private": true,
-  "description": "卡贴 (katie) — turn X/Twitter text posts into vertical quote-card PNGs",
+  "description": "X Sticker — turn X/Twitter text posts into vertical quote-card PNGs",
   "type": "module",
   "scripts": {
     "dev": "vite",

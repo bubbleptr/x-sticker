@@ -1,4 +1,4 @@
-# 卡贴 Katie
+# X Sticker
 
 把 X / Twitter **文字贴** 渲成竖版 PNG（抖音 / 小红书用）。贴文本身是 **仿 X 网页 status 详情** 的白底卡，竖版画布背景可选纯色、渐变或内置照片。
 
@@ -42,7 +42,7 @@ Linux 建议：`fonts-wqy-microhei`、`fonts-noto-color-emoji`（以及可选 `f
 3. 点「做成卡贴」
 4. 在页内预览里调选项，点「下载 PNG」
 
-工具栏「卡贴」图标仍打开原来的弹窗。
+工具栏「X Sticker」图标仍打开原来的弹窗。
 
 ## 架构
 

@@ -3,12 +3,13 @@ import { BUNDLED_BACKGROUND_FILES } from './src/photoBackgrounds'
 
 export default defineManifest({
   manifest_version: 3,
-  name: '卡贴 Katie',
+  name: 'X Sticker',
+  short_name: 'X Sticker',
   description: '把 X/Twitter 文字贴转成竖版引用图并下载 PNG',
   version: '0.1.0',
   action: {
     default_popup: 'src/popup/index.html',
-    default_title: '卡贴 Katie',
+    default_title: 'X Sticker',
   },
   background: {
     service_worker: 'src/background/sw.ts',
