@@ -1,6 +1,8 @@
 import type { PostText, RenderOptions } from '../types'
 import { ASPECT_SIZE } from '../types'
+import { isBundledBackgroundFile, type BundledBackgroundFile } from '../photoBackgrounds'
 import { formatCompactCount, formatMetaClock } from './format'
+import { drawStatusCard, paintOuterBackground } from './outerFrame'
 import { buildStatusArticleHtml } from './statusHtml'
 
 export { formatCompactCount, formatMetaClock } from './format'
@@ -186,6 +188,14 @@ function isBrowser(): boolean {
   return typeof document !== 'undefined'
 }
 
+async function loadBundledBackground(src: BundledBackgroundFile): Promise<ImageBitmap> {
+  if (!isBundledBackgroundFile(src)) throw new Error(`unknown background: ${src}`)
+  const url = chrome.runtime.getURL(src)
+  const res = await fetch(url)
+  if (!res.ok) throw new Error(`background fetch failed: ${src}`)
+  return createImageBitmap(await res.blob())
+}
+
 /**
  * Browser (extension popup): html-to-image of X status HTML.
  * Node tests/scripts: import `renderCardPng` from `./cardNode` instead.
@@ -255,11 +265,14 @@ async function renderStatusPngViaDom(
   canvas.height = outH
   const ctx = canvas.getContext('2d')
   if (!ctx) throw new Error('2d unavailable')
-  ctx.fillStyle = '#ffffff'
-  ctx.fillRect(0, 0, outW, outH)
-  const drawH = Math.round((img.height / img.width) * outW)
-  const y = Math.max(0, Math.round((outH - drawH) / 2))
-  ctx.drawImage(img, 0, y, outW, Math.min(drawH, outH))
+  await paintOuterBackground<ImageBitmap>(
+    ctx,
+    options.background,
+    outW,
+    outH,
+    loadBundledBackground,
+  )
+  drawStatusCard<HTMLImageElement>(ctx, img, outW, outH)
 
   const blob = await new Promise<Blob>((resolve, reject) => {
     canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('toBlob failed'))), 'image/png')

@@ -2,8 +2,11 @@ import { writeFileSync, mkdtempSync, rmSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { chromium } from 'playwright-core'
-import type { PostText, RenderOptions } from '../types'
+import type { BundledBackgroundFile } from '../photoBackgrounds'
+import type { Background, PostText, RenderOptions } from '../types'
 import { ASPECT_SIZE } from '../types'
+import { bundledBackgroundFilePath } from './bundledBackgroundFile'
+import { drawStatusCard, paintOuterBackground } from './outerFrame'
 import { buildStatusArticleHtml } from './statusHtml'
 
 const CHROME_CANDIDATES = [
@@ -28,8 +31,8 @@ async function avatarToDataUrl(url: string | undefined): Promise<string | undefi
 }
 
 /**
- * Rasterize X status HTML via headless Chrome into a vertical export PNG
- * (full-bleed white content, white letterboxing — no floating card).
+ * Rasterize X status HTML via headless Chrome into a vertical export PNG.
+ * The article stays the white status card, centered on the outer background.
  */
 export async function renderStatusPngViaChrome(
   post: PostText,
@@ -76,7 +79,7 @@ export async function renderStatusPngViaChrome(
     await browser.close()
 
     const articlePng = readFileSync(shotPath)
-    return await compositeOnWhite(articlePng, outW, outH)
+    return await compositeExport(articlePng, outW, outH, options.background)
   } catch (err) {
     await browser.close().catch(() => undefined)
     throw err
@@ -85,21 +88,22 @@ export async function renderStatusPngViaChrome(
   }
 }
 
-async function compositeOnWhite(
+async function loadBundledBackground(src: BundledBackgroundFile) {
+  const { loadImage } = await import('@napi-rs/canvas')
+  return loadImage(bundledBackgroundFilePath(src))
+}
+
+async function compositeExport(
   articlePng: Buffer,
   outW: number,
   outH: number,
+  background: Background,
 ): Promise<Uint8Array> {
   const { createCanvas, loadImage } = await import('@napi-rs/canvas')
   const img = await loadImage(articlePng)
   const canvas = createCanvas(outW, outH)
   const ctx = canvas.getContext('2d')
-  ctx.fillStyle = '#ffffff'
-  ctx.fillRect(0, 0, outW, outH)
-  // Article screenshot already at deviceScaleFactor = outW/598, so width ≈ outW
-  const drawW = outW
-  const drawH = Math.round((img.height / img.width) * drawW)
-  const y = Math.max(0, Math.round((outH - drawH) / 2))
-  ctx.drawImage(img, 0, y, drawW, Math.min(drawH, outH))
+  await paintOuterBackground(ctx, background, outW, outH, loadBundledBackground)
+  drawStatusCard(ctx, img, outW, outH)
   return new Uint8Array(canvas.toBuffer('image/png'))
 }

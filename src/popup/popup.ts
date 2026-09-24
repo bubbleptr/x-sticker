@@ -1,7 +1,6 @@
 import {
   DEFAULT_RENDER_OPTIONS,
   type AspectRatio,
-  type Background,
   type KatieMessage,
   type PostText,
   type RenderOptions,
@@ -37,7 +36,7 @@ function currentOptions(): RenderOptions {
     hideHandle: hideHandleEl.checked,
     showAuthor: showAuthorEl.checked,
     aspect,
-    background: preset.background as Background,
+    background: preset.background,
   }
 }
 

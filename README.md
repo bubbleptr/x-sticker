@@ -1,6 +1,6 @@
 # 卡贴 Katie
 
-把 X / Twitter **文字贴** 渲成竖版 PNG（抖音 / 小红书用）。输出是 **全白底、仿 X 网页 status 详情** 的紧裁贴，不是圆角浮卡贴纸。
+把 X / Twitter **文字贴** 渲成竖版 PNG（抖音 / 小红书用）。贴文本身是 **仿 X 网页 status 详情** 的白底卡，竖版画布背景可选纯色、渐变或内置照片。
 
 **v0.1**：仅「抓取 → 预览 → 本地下载」。不含平台发布。
 
@@ -9,6 +9,7 @@
 - 在帖子的原生分享菜单里点「做成卡贴」，页内预览并下载 PNG
 - 工具栏弹窗仍抓取当前 status（或时间线首条）：正文、作者、handle、时间、互动数、头像
 - 选项：隐藏 handle、显示作者、比例 `3:4` / `9:16`
+- 背景：纯白 / 浅灰 / 天蓝渐变 / 墨黑，或六张内置照片（云海、海边、雪峰、涩谷霓虹、纽约、香港）。弹窗和分享浮层的「背景」芯片相同，不联网拉取 Unsplash
 - 弹窗用 HTML + `html-to-image` 预览；本机单测 / 脚本用 Chrome 截图栅格化
 - 下载 PNG 到本地
 
@@ -47,7 +48,7 @@ Linux 建议：`fonts-wqy-microhei`、`fonts-noto-color-emoji`（以及可选 `f
 
 1. Content script 在打开的分享菜单里注入「做成卡贴」，刮该帖的 `PostText`，页内浮层预览。工具栏弹窗仍走 `SCRAPE_POST`。
 2. `render/statusHtml.ts` 拼出 598px 宽的 X light status HTML（实测字号/色值 + 真实 SVG path）
-3. 弹窗和页内浮层：`html-to-image`；Node：`playwright-core` Chrome 截 `article` → 白底竖版合成
+3. 弹窗和页内浮层：`html-to-image`；Node：`playwright-core` Chrome 截 `article` → 铺满外框背景后居中贴上白底卡
 4. Background SW → `chrome.downloads`
 
 ## License
