@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { openCardOverlay } from './overlay'
 import { renderCardPng } from '../render/card'
+import { buildStatusArticleHtml } from '../render/statusHtml'
 
 vi.mock('../render/card', () => ({ renderCardPng: vi.fn() }))
 
@@ -10,8 +11,8 @@ const get = vi.fn()
 const set = vi.fn()
 const sendMessage = vi.fn()
 
-function open(text = '当前帖子') {
-  openCardOverlay({ ok: true, post: { text, handle: 'example', authorDisplayName: '作者', postUrl: `https://x.com/example/status/${text}` } })
+function open(text = '当前帖子', authorDisplayName = '作者') {
+  openCardOverlay({ ok: true, post: { text, handle: 'example', authorDisplayName, postUrl: `https://x.com/example/status/${text}` } })
   return document.getElementById('katie-card-overlay')!.shadowRoot!
 }
 
@@ -34,6 +35,7 @@ beforeEach(() => {
 
 afterEach(() => {
   close()
+  vi.useRealTimers()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
@@ -116,4 +118,67 @@ it('keeps a failed preference warning until that same preference saves successfu
   expect(message.hidden).toBe(false)
   showHandle.click()
   await vi.waitFor(() => expect(message.hidden).toBe(true))
+})
+
+it('renders and remembers a custom name, then restores each post author when cleared', async () => {
+  let root = open()
+  await vi.waitFor(() => expect(renderCardPng).toHaveBeenCalled())
+  const originalPost = vi.mocked(renderCardPng).mock.lastCall![0]
+  const input = root.querySelector<HTMLInputElement>('#customName')
+  expect(input).not.toBeNull()
+  input!.value = '我的名字'
+  input!.dispatchEvent(new Event('input', { bubbles: true }))
+  expect(root.querySelector<HTMLButtonElement>('#download')!.disabled).toBe(true)
+  expect(root.querySelector<HTMLButtonElement>('button[type=submit]')!.disabled).toBe(true)
+  await vi.waitFor(() => expect(vi.mocked(renderCardPng).mock.lastCall?.[0].authorDisplayName).toBe('我的名字'))
+  expect(originalPost.authorDisplayName).toBe('作者')
+  close()
+  vi.mocked(renderCardPng).mockClear()
+  root = open('下一条帖子', '另一位作者')
+  await vi.waitFor(() => expect(renderCardPng).toHaveBeenCalledTimes(1))
+  expect(root.querySelector<HTMLInputElement>('#customName')!.value).toBe('我的名字')
+  expect(vi.mocked(renderCardPng).mock.lastCall?.[0]).toMatchObject({ authorDisplayName: '我的名字', handle: 'example', text: '下一条帖子' })
+  root.querySelector<HTMLInputElement>('#showAuthor')!.click()
+  const hiddenCall = vi.mocked(renderCardPng).mock.lastCall!
+  const hidden = new DOMParser().parseFromString(buildStatusArticleHtml(hiddenCall[0], hiddenCall[1]), 'text/html')
+  expect(hidden.querySelector('.name-row')!.textContent).not.toContain('我的名字')
+  expect(root.querySelector<HTMLInputElement>('#customName')!.disabled).toBe(true)
+  root.querySelector<HTMLInputElement>('#showAuthor')!.click()
+  expect(root.querySelector<HTMLInputElement>('#customName')!.disabled).toBe(false)
+  expect(root.querySelector<HTMLInputElement>('#customName')!.value).toBe('我的名字')
+  const restoredInput = root.querySelector<HTMLInputElement>('#customName')!
+  restoredInput.value = '   '
+  restoredInput.dispatchEvent(new Event('input', { bubbles: true }))
+  await vi.waitFor(() => expect(vi.mocked(renderCardPng).mock.lastCall?.[0].authorDisplayName).toBe('另一位作者'))
+  close()
+  vi.mocked(renderCardPng).mockClear()
+  root = open('再下一条帖子', '第三位作者')
+  await vi.waitFor(() => expect(renderCardPng).toHaveBeenCalledTimes(1))
+  expect(vi.mocked(renderCardPng).mock.lastCall?.[0].authorDisplayName).toBe('第三位作者')
+})
+
+it('coalesces name edits, rejects an older image, and cancels pending rendering on close', async () => {
+  let finishOriginal!: (bytes: Uint8Array) => void
+  vi.mocked(renderCardPng).mockImplementationOnce(() => new Promise((resolve) => { finishOriginal = resolve }))
+  const root = open()
+  await vi.waitFor(() => expect(renderCardPng).toHaveBeenCalledTimes(1))
+  vi.useFakeTimers()
+  const input = root.querySelector<HTMLInputElement>('#customName')!
+  for (const name of ['自', '自定', '自定义名字']) {
+    input.value = name
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  }
+  finishOriginal(new Uint8Array([9, 9, 9]))
+  await Promise.resolve()
+  expect(root.querySelector<HTMLButtonElement>('#download')!.disabled).toBe(true)
+  expect(root.querySelector<HTMLButtonElement>('button[type=submit]')!.disabled).toBe(true)
+  await vi.runOnlyPendingTimersAsync()
+  expect(renderCardPng).toHaveBeenCalledTimes(2)
+  expect(vi.mocked(renderCardPng).mock.lastCall?.[0].authorDisplayName).toBe('自定义名字')
+  expect(root.querySelector<HTMLButtonElement>('#download')!.disabled).toBe(false)
+  input.value = '关闭前的修改'
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+  close()
+  await vi.runOnlyPendingTimersAsync()
+  expect(renderCardPng).toHaveBeenCalledTimes(2)
 })

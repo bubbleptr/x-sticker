@@ -23,6 +23,7 @@ it('starts a new installation with both identity fields visible and a photo back
   expect(await loadInspectorPreferences()).toEqual({
     showHandle: true,
     showAuthor: true,
+    customName: '',
     aspect: '3:4',
     backgroundId: 'mt-fog',
     platforms: ['xiaohongshu'],
@@ -33,6 +34,7 @@ it('restores the selected inspector options when the module is opened again', as
   await saveInspectorPreferences({
     showHandle: false,
     showAuthor: false,
+    customName: '  自定义名字  ',
     aspect: '9:16',
     backgroundId: 'hk-harbor',
     platforms: ['douyin'],
@@ -43,9 +45,22 @@ it('restores the selected inspector options when the module is opened again', as
   expect(await reopened.loadInspectorPreferences()).toEqual({
     showHandle: false,
     showAuthor: false,
+    customName: '  自定义名字  ',
     aspect: '9:16',
     backgroundId: 'hk-harbor',
     platforms: ['douyin'],
+  })
+})
+
+it('remembers clearing a custom name without resetting other inspector choices', async () => {
+  await saveInspectorPreferences({ customName: '自定义名字', backgroundId: 'hk-harbor' })
+  await saveInspectorPreferences({ customName: '' })
+  vi.resetModules()
+  const reopened = await import('./inspectorPreferences')
+
+  expect(await reopened.loadInspectorPreferences()).toMatchObject({
+    customName: '',
+    backgroundId: 'hk-harbor',
   })
 })
 
@@ -53,6 +68,7 @@ it('falls back independently for malformed cached options and retired background
   stored = {
     'stickerInspector.showHandle': 'false',
     'stickerInspector.showAuthor': false,
+    'stickerInspector.customName': { name: '旧缓存' },
     'stickerInspector.aspect': '1:1',
     'stickerInspector.backgroundId': 'solid-white',
     'stickerInspector.platforms': ['weixin'],
@@ -61,6 +77,7 @@ it('falls back independently for malformed cached options and retired background
   expect(await loadInspectorPreferences()).toEqual({
     showHandle: true,
     showAuthor: false,
+    customName: '',
     aspect: '3:4',
     backgroundId: 'mt-fog',
     platforms: ['xiaohongshu'],
@@ -78,6 +95,7 @@ it('keeps changes to separate inspector options from concurrent windows', async 
   expect(await loadInspectorPreferences()).toEqual({
     showHandle: false,
     showAuthor: false,
+    customName: '',
     aspect: '9:16',
     backgroundId: 'nyc-skyline',
     platforms: [],

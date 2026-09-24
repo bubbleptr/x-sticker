@@ -5,6 +5,7 @@ import type { AspectRatio } from './types'
 export type InspectorPreferences = {
   showHandle: boolean
   showAuthor: boolean
+  customName: string
   aspect: AspectRatio
   backgroundId: PhotoPresetId
   platforms: DraftPlatform[]
@@ -13,6 +14,7 @@ export type InspectorPreferences = {
 export const DEFAULT_INSPECTOR_PREFERENCES: InspectorPreferences = {
   showHandle: true,
   showAuthor: true,
+  customName: '',
   aspect: '3:4',
   backgroundId: 'mt-fog',
   platforms: ['xiaohongshu'],
@@ -21,6 +23,7 @@ export const DEFAULT_INSPECTOR_PREFERENCES: InspectorPreferences = {
 const STORAGE_KEYS = {
   showHandle: 'stickerInspector.showHandle',
   showAuthor: 'stickerInspector.showAuthor',
+  customName: 'stickerInspector.customName',
   aspect: 'stickerInspector.aspect',
   backgroundId: 'stickerInspector.backgroundId',
   platforms: 'stickerInspector.platforms',
@@ -30,12 +33,14 @@ export async function loadInspectorPreferences(): Promise<InspectorPreferences> 
   const stored: Record<string, unknown> = await chrome.storage.local.get(Object.values(STORAGE_KEYS))
   const showHandle = stored[STORAGE_KEYS.showHandle]
   const showAuthor = stored[STORAGE_KEYS.showAuthor]
+  const customName = stored[STORAGE_KEYS.customName]
   const aspect = stored[STORAGE_KEYS.aspect]
   const backgroundId = PHOTO_PRESETS.find((preset) => preset.id === stored[STORAGE_KEYS.backgroundId])?.id
   const platforms = stored[STORAGE_KEYS.platforms]
   return {
     showHandle: typeof showHandle === 'boolean' ? showHandle : DEFAULT_INSPECTOR_PREFERENCES.showHandle,
     showAuthor: typeof showAuthor === 'boolean' ? showAuthor : DEFAULT_INSPECTOR_PREFERENCES.showAuthor,
+    customName: typeof customName === 'string' ? customName : DEFAULT_INSPECTOR_PREFERENCES.customName,
     aspect: aspect === '3:4' || aspect === '9:16' ? aspect : DEFAULT_INSPECTOR_PREFERENCES.aspect,
     backgroundId: backgroundId ?? DEFAULT_INSPECTOR_PREFERENCES.backgroundId,
     platforms: Array.isArray(platforms) && platforms.every(
