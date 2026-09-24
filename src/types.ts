@@ -1,4 +1,5 @@
 import type { BundledBackgroundFile } from './photoBackgrounds'
+import type { ImageAsset } from './media'
 
 export type PostStats = {
   replies?: number
@@ -13,8 +14,16 @@ export type PostTextRun = {
   bold?: boolean
 }
 
+export type PostPhoto = {
+  url: string
+  alt?: string
+  width?: number
+  height?: number
+}
+
 export type PostText = {
   text: string
+  photos?: PostPhoto[]
   /** Formatting runs concatenate to text; captions continue to use plain text. */
   textRuns?: PostTextRun[]
   authorDisplayName?: string
@@ -74,6 +83,8 @@ export type ScrapeResult =
 
 export type KatieMessage =
   | { type: 'OPEN_CARD_OVERLAY' }
+  | { type: 'LOAD_POST_PHOTO'; url: string; filenameStem: string }
+  | { type: 'DOWNLOAD_IMAGES'; images: ImageAsset[]; filename: string }
   | { type: 'DOWNLOAD_PNG'; bytes: number[]; filename: string }
   | { type: 'DOWNLOAD_OK' }
   | { type: 'DOWNLOAD_ERR'; message: string }

@@ -1,4 +1,4 @@
-import type { PostStats, PostText, PostTextRun, ScrapeResult } from '../types'
+import type { PostPhoto, PostStats, PostText, PostTextRun, ScrapeResult } from '../types'
 
 const STATUS_RE = /\/status\/(\d+)/
 
@@ -13,11 +13,52 @@ function statusIdFromUrl(url: string): string | undefined {
   return m?.[1]
 }
 
+function isOwnContent(article: Element, node: Element): boolean {
+  if (node.closest('article') !== article) return false
+  for (let parent: Element | null = node; parent && parent !== article; parent = parent.parentElement) {
+    if (parent.getAttribute('data-testid') === 'quoteTweet') return false
+    // X quote cards can share the outer article instead of nesting another article.
+    if (parent.getAttribute('role') === 'link' && parent.querySelector('[data-testid="User-Name"]')) return false
+  }
+  return true
+}
+
 function queryOwn(article: Element, selector: string): Element | null {
   for (const node of Array.from(article.querySelectorAll(selector))) {
-    if (node.closest('article') === article) return node
+    if (isOwnContent(article, node)) return node
   }
   return null
+}
+
+function extractPhotos(article: Element, postUrl: string): PostPhoto[] {
+  const photos: PostPhoto[] = []
+  const seen = new Set<string>()
+  const postId = statusIdFromUrl(postUrl)
+  for (const image of Array.from(article.querySelectorAll<HTMLImageElement>('[data-testid="tweetPhoto"] img'))) {
+    if (!isOwnContent(article, image)) continue
+    if (image.closest('[data-testid="card.wrapper"], [data-testid="videoPlayer"], [data-testid="videoComponent"], [data-testid="quoteTweet"]')) continue
+    const photoLink = image.closest('a[href*="/status/"]')
+    if (photoLink && statusIdFromUrl(photoLink.getAttribute('href') ?? '') !== postId) continue
+    let url: URL
+    try {
+      url = new URL(image.currentSrc || image.src)
+    } catch {
+      continue
+    }
+    if (url.protocol !== 'https:' || url.hostname !== 'pbs.twimg.com' || !url.pathname.startsWith('/media/')) continue
+    url.searchParams.set('name', 'orig')
+    url.hash = ''
+    if (seen.has(url.href)) continue
+    seen.add(url.href)
+    const alt = image.getAttribute('alt')?.trim()
+    photos.push({
+      url: url.href,
+      ...(alt ? { alt } : {}),
+      ...(image.width > 0 ? { width: image.width } : {}),
+      ...(image.height > 0 ? { height: image.height } : {}),
+    })
+  }
+  return photos
 }
 
 function isPromoted(article: Element): boolean {
@@ -134,7 +175,7 @@ function extractPostUrl(article: Element, pageUrl: string): string {
     if (handleMatch) return `${origin}/${handleMatch[1]}/status/${statusId}`
   }
 
-  const statusLink = article.querySelector('a[href*="/status/"]') as HTMLAnchorElement | null
+  const statusLink = queryOwn(article, 'a[href*="/status/"]') as HTMLAnchorElement | null
   if (statusLink?.href) return statusLink.href.split('?')[0]
 
   return pageUrl.split('?')[0]
@@ -239,8 +280,9 @@ function extractStats(article: Element): {
 function articleMatchesStatus(article: Element, statusId: string): boolean {
   const links = article.querySelectorAll('a[href*="/status/"]')
   for (const link of Array.from(links)) {
+    if (!isOwnContent(article, link)) continue
     const href = link.getAttribute('href') ?? ''
-    if (href.includes(`/status/${statusId}`)) return true
+    if (statusIdFromUrl(href) === statusId) return true
   }
   return false
 }
@@ -261,7 +303,7 @@ function pickArticle(doc: Document, pageUrl: string): Element | null {
 
 export function articleStatusUrl(article: Element, fallback: string): string {
   for (const time of Array.from(article.querySelectorAll('time'))) {
-    if (time.closest('article') !== article) continue
+    if (!isOwnContent(article, time)) continue
     const href = time.closest('a')?.getAttribute('href')
     if (!href || !href.includes('/status/')) continue
     try {
@@ -275,17 +317,19 @@ export function articleStatusUrl(article: Element, fallback: string): string {
 
 export function scrapeArticle(article: Element, pageUrl: string): ScrapeResult {
   const { text, textRuns } = extractTweetText(article)
-  if (!text) return { ok: false, reason: 'no_text_post' }
+  const postUrl = extractPostUrl(article, pageUrl)
+  const photos = extractPhotos(article, postUrl)
+  if (!text && !photos.length) return { ok: false, reason: 'no_text_post' }
 
   const { authorDisplayName, handle, avatarUrl, verified } = extractAuthor(article)
   const createdAt = extractCreatedAt(article)
-  const postUrl = extractPostUrl(article, pageUrl)
   const { stats, liked, bookmarked } = extractStats(article)
 
   const post: PostText = {
     text,
     ...(textRuns ? { textRuns } : {}),
     postUrl,
+    ...(photos.length ? { photos } : {}),
     ...(authorDisplayName ? { authorDisplayName } : {}),
     ...(handle ? { handle } : {}),
     ...(avatarUrl ? { avatarUrl } : {}),
