@@ -8,8 +8,15 @@ export type PostStats = {
   views?: number
 }
 
+export type PostTextRun = {
+  text: string
+  bold?: boolean
+}
+
 export type PostText = {
   text: string
+  /** Formatting runs concatenate to text; captions continue to use plain text. */
+  textRuns?: PostTextRun[]
   authorDisplayName?: string
   /** Without leading @; normalize at scrape boundary. */
   handle?: string

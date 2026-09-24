@@ -1,5 +1,4 @@
 export function createPreviewController(canvas: HTMLCanvasElement, viewport: HTMLElement) {
-  let mode: 'fit' | 'actual' = 'fit'
   let generation = 0
   let pendingUrl: string | null = null
 
@@ -8,14 +7,13 @@ export function createPreviewController(canvas: HTMLCanvasElement, viewport: HTM
     const width = viewport.clientWidth - parseFloat(style.paddingLeft || '0') - parseFloat(style.paddingRight || '0')
     const height = viewport.clientHeight - parseFloat(style.paddingTop || '0') - parseFloat(style.paddingBottom || '0')
     if (width <= 0 || height <= 0) return
-    const scale = mode === 'actual' ? 1 : Math.min(width / canvas.width, height / canvas.height, 1)
+    const scale = Math.min(width / canvas.width, height / canvas.height, 1)
     canvas.style.width = `${canvas.width * scale}px`
     canvas.style.height = `${canvas.height * scale}px`
   }
 
   const observer = new ResizeObserver(layout)
   observer.observe(viewport)
-  viewport.dataset.zoom = mode
   layout()
 
   return {
@@ -31,7 +29,7 @@ export function createPreviewController(canvas: HTMLCanvasElement, viewport: HTM
       }
       image.onload = () => {
         if (current !== generation) { release(); return }
-        // Scale only the display size; zoom must retain every exported pixel.
+        // Scale only the display size to retain every exported pixel.
         canvas.width = image.naturalWidth
         canvas.height = image.naturalHeight
         canvas.getContext('2d')?.drawImage(image, 0, 0)
@@ -40,13 +38,6 @@ export function createPreviewController(canvas: HTMLCanvasElement, viewport: HTM
       }
       image.onerror = release
       image.src = url
-    },
-    setZoom(next: 'fit' | 'actual'): void {
-      mode = next
-      viewport.dataset.zoom = next
-      viewport.scrollTop = 0
-      viewport.scrollLeft = 0
-      layout()
     },
     destroy(): void {
       generation++

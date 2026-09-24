@@ -39,9 +39,6 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 360px; flex: 1; min-height: 0; }
 .preview-wrap { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: #f3f4f6; }
 .preview-toolbar { display: flex; flex: 0 0 60px; align-items: center; justify-content: space-between; gap: 12px; padding: 0 24px; font-size: 13px; color: var(--muted); }
-.zoom-controls { display: flex; gap: 2px; padding: 2px; border-radius: 8px; background: #e8ebee; }
-.zoom-controls button { min-height: 36px; padding: 6px 12px; border: 0; border-radius: 6px; font-size: 13px; color: var(--muted); background: transparent; }
-.zoom-controls button[aria-pressed="true"] { color: var(--ink); background: #fff; box-shadow: 0 1px 3px #0f14191a; }
 .preview-viewport { display: flex; flex: 1; min-width: 0; min-height: 0; overflow: auto; margin: 0 24px; }
 canvas { display: block; flex: none; margin: auto; background: #fff; border-radius: 4px; box-shadow: 0 4px 20px #0f14191a; }
 .status { margin: 0; flex: 0 0 36px; padding: 9px 24px; font-size: 12px; color: var(--muted); }
@@ -98,10 +95,7 @@ export function openCardOverlay(result: ScrapeResult): void {
           <section class="preview-wrap" aria-label="预览">
             <div class="preview-toolbar">
               <span>贴图预览</span>
-              <div class="zoom-controls" role="group" aria-label="预览缩放">
-                <button type="button" id="zoomFit" aria-pressed="true">适应窗口</button>
-                <button type="button" id="zoomActual" aria-pressed="false">100%</button>
-              </div>
+              <span>适应窗口</span>
             </div>
             <div id="previewViewport" class="preview-viewport">
               <canvas id="preview" width="1080" height="1440" aria-label="贴图效果"></canvas>
@@ -145,8 +139,6 @@ export function openCardOverlay(result: ScrapeResult): void {
   const workspace = q<HTMLElement>('.workspace')
   const progressScreen = q<HTMLElement>('#draftProgress')
   const previewController = createPreviewController(preview, q<HTMLElement>('#previewViewport'))
-  const zoomFit = q<HTMLButtonElement>('#zoomFit')
-  const zoomActual = q<HTMLButtonElement>('#zoomActual')
 
   const post: PostText | null = result.ok ? result.post : null
   let pngBytes: Uint8Array | null = null
@@ -272,14 +264,6 @@ export function openCardOverlay(result: ScrapeResult): void {
   }
   downloadBtn.addEventListener('click', () => void downloadPng())
   q<HTMLButtonElement>('#showProgress').addEventListener('click', () => composer.showProgress())
-  for (const [button, mode] of [[zoomFit, 'fit'], [zoomActual, 'actual']] as const) {
-    button.addEventListener('click', () => {
-      previewController.setZoom(mode)
-      zoomFit.setAttribute('aria-pressed', String(mode === 'fit'))
-      zoomActual.setAttribute('aria-pressed', String(mode === 'actual'))
-    })
-  }
-
   document.documentElement.appendChild(host)
   sheet.focus()
 

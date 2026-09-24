@@ -17,14 +17,27 @@ function escapeHtml(s: string): string {
     .replace(/"/g, '&quot;')
 }
 
-function bodyHtml(text: string): string {
-  const cleaned = text.replace(/\u00a0/g, ' ').trimEnd()
+function bodyHtml(post: PostText): string {
+  const cleaned = post.text.replace(/\u00a0/g, ' ').trimEnd()
   const paragraphs = cleaned.split(/\n/)
+  // Ignore stale formatting if a caller replaces the plain text.
+  const runs = post.textRuns?.map((run) => run.text).join('') === post.text
+    ? post.textRuns
+    : [{ text: post.text }]
+  let remaining = cleaned.length
+  const formattedLines = runs.map((run) => {
+    const text = run.text.replace(/\u00a0/g, ' ').slice(0, remaining)
+    remaining -= text.length
+    return text.split('\n').map((part) => {
+      const escaped = escapeHtml(part)
+      return run.bold && part ? `<strong>${escaped}</strong>` : escaped
+    }).join('\n')
+  }).join('').split('\n')
   // Preserve blank lines as empty <p> for paragraph gap
   return paragraphs
-    .map((line) => {
+    .map((line, index) => {
       if (line.trim() === '') return '<p class="blank">&nbsp;</p>'
-      return `<p class="line">${escapeHtml(line)}</p>`
+      return `<p class="line">${formattedLines[index]}</p>`
     })
     .join('')
 }
@@ -140,6 +153,7 @@ export function buildStatusArticleHtml(
     word-break: break-word;
   }
   .body .line { margin: 0; }
+  .body strong { font-weight: 700; }
   .body .blank { height: 24px; margin: 0; }
   .meta {
     margin-top: 16px;
@@ -217,7 +231,7 @@ export function buildStatusArticleHtml(
       </div>
       ${showMenu ? `<div class="menu" aria-hidden="true">···</div>` : ''}
     </div>
-    <div class="body">${bodyHtml(post.text)}</div>
+    <div class="body">${bodyHtml(post)}</div>
     <div class="meta">${escapeHtml(clock)}${viewsHtml}</div>
     <div class="actions">
       ${action(buildActionIconSvg('reply'), count(post.stats?.replies, muted), muted)}
