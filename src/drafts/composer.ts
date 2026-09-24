@@ -10,6 +10,7 @@ interface DraftSnapshot {
 interface DraftComposerOptions {
   progressContainer: HTMLElement
   onViewChange: (view: 'editor' | 'progress') => void
+  onPlatformsChange?: (platforms: DraftPlatform[]) => void
 }
 
 const CSS = `
@@ -366,6 +367,11 @@ export function createDraftComposer(container: HTMLElement, options: DraftCompos
   progressContainer.querySelector('.draft-back')!.addEventListener('click', () => setView('editor'))
   form.addEventListener('input', changed)
   form.addEventListener('change', changed)
+  for (const input of platformInputs) {
+    input.addEventListener('change', () => {
+      options.onPlatformsChange?.(platformInputs.filter((platform) => platform.checked).map((platform) => platform.value as DraftPlatform))
+    })
+  }
   bodyInput.addEventListener('keydown', (event) => {
     if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
       event.preventDefault()
@@ -430,6 +436,12 @@ export function createDraftComposer(container: HTMLElement, options: DraftCompos
   void refreshJobs()
 
   return {
+    setPlatforms(platforms: DraftPlatform[]): void {
+      if (destroyed) return
+      if (platformInputs.every((input) => input.checked === platforms.includes(input.value as DraftPlatform))) return
+      for (const input of platformInputs) input.checked = platforms.includes(input.value as DraftPlatform)
+      changed()
+    },
     setSnapshot(next: DraftSnapshot | null): void {
       if (destroyed) return
       if (next?.post.postUrl !== snapshot?.post.postUrl) {

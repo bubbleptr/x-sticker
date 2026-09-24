@@ -1,4 +1,4 @@
-import type { PostStats, PostText, ScrapeResult } from '../types'
+import type { PostStats, PostText, PostTextRun, ScrapeResult } from '../types'
 
 const STATUS_RE = /\/status\/(\d+)/
 
@@ -25,30 +25,53 @@ function isPromoted(article: Element): boolean {
   return /Promoted|Ad|推广|广告/.test(text) && !!article.querySelector('[data-testid="placementTracking"]')
 }
 
-function extractTweetText(article: Element): string {
+function extractTweetText(article: Element): Pick<PostText, 'text' | 'textRuns'> {
   const textRoot = queryOwn(article, '[data-testid="tweetText"]')
-  if (!textRoot) return ''
+  if (!textRoot) return { text: '' }
 
-  const parts: string[] = []
-  const walk = (node: Node) => {
+  const runs: PostTextRun[] = []
+  const append = (text: string, bold: boolean) => {
+    if (!text) return
+    text = text.replace(/\u00a0/g, ' ')
+    const previous = runs.at(-1)
+    if (previous && Boolean(previous.bold) === bold) previous.text += text
+    else runs.push({ text, ...(bold ? { bold: true } : {}) })
+  }
+  const walk = (node: Node, inheritedBold = false) => {
     if (node.nodeType === Node.TEXT_NODE) {
-      const t = node.textContent ?? ''
-      if (t) parts.push(t)
+      append(node.textContent ?? '', inheritedBold)
       return
     }
     if (!(node instanceof HTMLElement)) return
+    const weight = node.ownerDocument.defaultView?.getComputedStyle(node).fontWeight
+    const bold = weight
+      ? weight === 'bold' || weight === 'bolder' || Number(weight) >= 600
+      : inheritedBold || node.tagName === 'B' || node.tagName === 'STRONG'
     if (node.tagName === 'IMG' && node.getAttribute('alt')) {
-      parts.push(node.getAttribute('alt') ?? '')
+      append(node.getAttribute('alt') ?? '', bold)
       return
     }
     if (node.tagName === 'BR') {
-      parts.push('\n')
+      append('\n', bold)
       return
     }
-    for (const child of Array.from(node.childNodes)) walk(child)
+    for (const child of Array.from(node.childNodes)) walk(child, bold)
   }
   walk(textRoot)
-  return parts.join('').replace(/\u00a0/g, ' ').trim()
+  while (runs.length) {
+    runs[0]!.text = runs[0]!.text.trimStart()
+    if (runs[0]!.text) break
+    runs.shift()
+  }
+  while (runs.length) {
+    runs.at(-1)!.text = runs.at(-1)!.text.trimEnd()
+    if (runs.at(-1)!.text) break
+    runs.pop()
+  }
+  return {
+    text: runs.map((run) => run.text).join(''),
+    ...(runs.some((run) => run.bold) ? { textRuns: runs } : {}),
+  }
 }
 
 function extractAuthor(article: Element): {
@@ -251,7 +274,7 @@ export function articleStatusUrl(article: Element, fallback: string): string {
 }
 
 export function scrapeArticle(article: Element, pageUrl: string): ScrapeResult {
-  const text = extractTweetText(article)
+  const { text, textRuns } = extractTweetText(article)
   if (!text) return { ok: false, reason: 'no_text_post' }
 
   const { authorDisplayName, handle, avatarUrl, verified } = extractAuthor(article)
@@ -261,6 +284,7 @@ export function scrapeArticle(article: Element, pageUrl: string): ScrapeResult {
 
   const post: PostText = {
     text,
+    ...(textRuns ? { textRuns } : {}),
     postUrl,
     ...(authorDisplayName ? { authorDisplayName } : {}),
     ...(handle ? { handle } : {}),

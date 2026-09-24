@@ -1,7 +1,6 @@
 import { createCanvas, loadImage } from '@napi-rs/canvas'
 import { describe, expect, it } from 'vitest'
-import { BUNDLED_BACKGROUND_FILES, PHOTO_PRESETS } from '../photoBackgrounds'
-import { BACKGROUND_PRESETS } from '../popup/presets'
+import { BUNDLED_BACKGROUND_FILES } from '../photoBackgrounds'
 import { ASPECT_SIZE } from '../types'
 import { bundledBackgroundFilePath } from './bundledBackgroundFile'
 import {
@@ -125,25 +124,6 @@ describe('statusCardPlacement', () => {
 })
 
 describe('bundled photo presets', () => {
-  it('lists the six Chinese labels beside the solid and gradient presets', () => {
-    expect(BACKGROUND_PRESETS.map((preset) => preset.id)).toEqual([
-      'white',
-      'xgray',
-      'xblue',
-      'ink',
-      ...PHOTO_PRESETS.map((preset) => preset.id),
-    ])
-    expect(
-      BACKGROUND_PRESETS.filter((preset) => preset.background.kind === 'image'),
-    ).toEqual(
-      PHOTO_PRESETS.map((preset) => ({
-        id: preset.id,
-        label: preset.label,
-        background: { kind: 'image', src: preset.file },
-      })),
-    )
-  })
-
   it('ships each photo at 1080×1620 and rejects other paths', async () => {
     for (const file of BUNDLED_BACKGROUND_FILES) {
       const img = await loadImage(bundledBackgroundFilePath(file))

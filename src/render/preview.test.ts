@@ -3,7 +3,7 @@ import { chromium } from 'playwright-core'
 import { createServer } from 'vite'
 import { expect, it } from 'vitest'
 
-it('fits a complete export without resampling its bitmap and reveals original pixels at 100%', async () => {
+it('fits a complete export through viewport resizing without resampling its bitmap', async () => {
   const server = await createServer({ configFile: false, logLevel: 'silent', server: { host: '127.0.0.1', port: 0 },
     plugins: [{ name: 'preview-test', configureServer(server) {
       server.middlewares.use((request, response, next) => {
@@ -41,18 +41,24 @@ it('fits a complete export without resampling its bitmap and reveals original pi
     expect(fit.width).toBeLessThanOrEqual(420)
     expect(fit.height).toBeLessThanOrEqual(560)
     expect(fit.width / fit.height).toBeCloseTo(3 / 4)
-    await page.evaluate('window.previewController.setZoom("actual")')
-    const actual = await page.evaluate(() => {
+    await page.locator('#viewport').evaluate((viewport) => {
+      viewport.style.width = '240px'
+      viewport.style.height = '280px'
+    })
+    await page.waitForFunction(() => document.querySelector('canvas')!.getBoundingClientRect().height <= 280)
+    const resized = await page.evaluate(() => {
       const canvas = document.querySelector('canvas')!
       const viewport = document.getElementById('viewport')!
       const bounds = canvas.getBoundingClientRect()
-      return { width: bounds.width, height: bounds.height, scrollWidth: viewport.scrollWidth, scrollHeight: viewport.scrollHeight }
+      return { width: bounds.width, height: bounds.height, scrollWidth: viewport.scrollWidth, scrollHeight: viewport.scrollHeight, bitmap: [canvas.width, canvas.height], corner: [...canvas.getContext('2d')!.getImageData(1079, 1439, 1, 1).data] }
     })
-    expect(actual).toMatchObject({ width: 1080, height: 1440 })
-    expect(actual.scrollWidth).toBeGreaterThan(420)
-    expect(actual.scrollHeight).toBeGreaterThan(560)
-    await page.evaluate('window.previewController.setZoom("fit")')
-    expect(await page.locator('canvas').evaluate((canvas) => canvas.getBoundingClientRect().height)).toBeLessThanOrEqual(560)
+    expect(resized.width).toBeLessThanOrEqual(240)
+    expect(resized.height).toBeLessThanOrEqual(280)
+    expect(resized.width / resized.height).toBeCloseTo(3 / 4)
+    expect(resized.scrollWidth).toBeLessThanOrEqual(240)
+    expect(resized.scrollHeight).toBeLessThanOrEqual(280)
+    expect(resized.bitmap).toEqual([1080, 1440])
+    expect(resized.corner).toEqual([255, 0, 0, 255])
     await page.evaluate('window.previewController.destroy()')
   } finally {
     await browser.close()
