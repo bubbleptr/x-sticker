@@ -2,6 +2,7 @@ import type { DraftJob } from './types'
 
 export interface DraftEditor {
   title: HTMLInputElement
+  titleEcho?: string | null
   body: HTMLElement
   imageCount: number
   image: HTMLImageElement | null

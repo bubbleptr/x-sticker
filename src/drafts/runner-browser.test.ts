@@ -48,6 +48,7 @@ it.each([
       let reopenClicks = 0
       let savedHtml = ''
       let savedTitle = ''
+      let savedBeforeTitleSync = false
       const job: DraftJob = {
         id: 'browser-job', assetId: 'browser-image', platform: 'xiaohongshu',
         title: '浏览器原生草稿测试', body: '第一段  保留两个空格\n\n第二段 👩‍💻\n第三段',
@@ -76,7 +77,22 @@ it.each([
         const title = document.createElement('input')
         title.placeholder = '填写标题会有更多赞哦'
         title.value = titleValue
-        title.addEventListener('input', () => { titleInputs.push(title.value) })
+        let titleModel = titleValue
+        const preview = document.createElement('aside')
+        preview.className = 'publish-page-preview'
+        preview.innerHTML = '<div class="image-preview"><div class="title"></div></div>'
+        const titleEcho = preview.querySelector('.title')!
+        titleEcho.textContent = titleValue
+        title.addEventListener('input', (event) => {
+          titleInputs.push(title.value)
+          if (event instanceof InputEvent && event.isTrusted && event.inputType === 'insertText') {
+            const nextTitle = title.value
+            requestAnimationFrame(() => {
+              titleModel = nextTitle
+              titleEcho.textContent = titleModel
+            })
+          }
+        })
         const body = document.createElement('div')
         body.className = 'tiptap ProseMirror'
         body.contentEditable = 'true'
@@ -100,7 +116,8 @@ it.each([
         publish.addEventListener('click', () => { publishClicks++ })
         save.addEventListener('click', () => {
           saveClicks++
-          savedTitle = title.value
+          savedBeforeTitleSync ||= titleModel !== title.value
+          savedTitle = titleModel
           savedHtml = body.innerHTML
           const list = document.createElement('div')
           list.className = 'draft-list'
@@ -122,7 +139,7 @@ it.each([
         })
         shadow.append(save, publish)
         container.append(title, body, image, controls)
-        fixture.replaceChildren(container)
+        fixture.replaceChildren(container, preview)
       }
 
       const upload = document.createElement('input')
@@ -140,7 +157,7 @@ it.each([
       const outcome = await runDraft(job, bytes, adapter, (update) => { updates.push(update) }, { timeout: 1500, now: () => 100 })
       return {
         outcome, updates, uploads, sourceByteLength: bytes.length, titleInputs, bodyInputs,
-        saveClicks, publishClicks, reopenClicks, savedHtml, savedTitle, imageUrls,
+        saveClicks, publishClicks, reopenClicks, savedHtml, savedTitle, imageUrls, savedBeforeTitleSync,
         finalTitle: adapter.getEditor()?.title.value,
         finalBody: adapter.getEditor()?.body.innerText,
       }
@@ -148,6 +165,7 @@ it.each([
     expect(result.uploads).toEqual([{ filename: 'local-card.png', mime: 'image/png', byteLength: result.sourceByteLength }])
     expect(result.titleInputs).toEqual(['浏览器原生草稿测试'])
     expect(result.bodyInputs.some((event) => event.trusted && event.inputType === 'insertText')).toBe(true)
+    expect(result.savedBeforeTitleSync).toBe(false)
     expect(result.saveClicks).toBe(1)
     expect(result.reopenClicks).toBe(1)
     expect(result.publishClicks).toBe(0)

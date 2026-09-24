@@ -20,7 +20,8 @@ export function createXiaohongshuAdapter(
     if (!container?.contains(body)) throw new Error('无法确认当前图文编辑区域，请手动接手')
     const images = Array.from(container.querySelectorAll<HTMLImageElement>('img.img.preview')).filter(isVisible)
     const image = images.length === 1 && images[0]!.complete && images[0]!.naturalWidth > 0 ? images[0]! : null
-    return { title, body, imageCount: images.length, image }
+    const titleEcho = unique<HTMLElement>('.publish-page-preview .image-preview .title', '笔记标题预览')?.textContent ?? null
+    return { title, body, imageCount: images.length, image, titleEcho }
   }
   return {
     storage: 'browser',

@@ -17,8 +17,10 @@ function setup(overrides: Partial<PlatformAdapter> = {}) {
   const title = document.querySelector('input')!
   const body = document.querySelector<HTMLElement>('[contenteditable]')!
   const exec = vi.fn((_command: string, _ui: boolean, value: string) => {
-    body.textContent = value
-    body.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: value }))
+    const target = document.activeElement === title ? title : body
+    if (target === title) title.value = value
+    else body.textContent = value
+    target.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: value }))
     return true
   })
   Object.defineProperty(document, 'execCommand', { configurable: true, value: exec })
@@ -295,6 +297,39 @@ describe('draft runner', () => {
     expect(result.status).toBe('needs_attention')
     expect(result.message).toContain('账号')
     expect(clicks).toBe(0)
+  })
+
+
+  it('does not save a displayed title until the platform preview has accepted it', async () => {
+    const context = setup()
+    const getEditor = context.adapter.getEditor
+    context.adapter.getEditor = () => ({ ...getEditor()!, titleEcho: null })
+    const result = await runDraft(job, [], context.adapter, context.report, { timeout: 5 })
+    expect(context.title.value).toBe(job.title)
+    expect(result.status).toBe('needs_attention')
+    expect(context.adapter.saveDraft).not.toHaveBeenCalled()
+    expect(context.updates.some((update) => update.step === 'saving')).toBe(false)
+  })
+
+
+  it('continues only after an asynchronous title preview catches up with the editor', async () => {
+    const context = setup()
+    const getEditor = context.adapter.getEditor
+    let titleEcho: string | null = null
+    let reachedPreview!: () => void
+    const waitingForPreview = new Promise<void>((resolve) => { reachedPreview = resolve })
+    context.adapter.getEditor = () => {
+      if (context.body.textContent === job.body) reachedPreview()
+      return { ...getEditor()!, titleEcho }
+    }
+    const pending = runDraft(job, [], context.adapter, context.report, { timeout: 100 })
+    await waitingForPreview
+    expect(context.adapter.saveDraft).not.toHaveBeenCalled()
+    titleEcho = job.title
+    document.body.setAttribute('data-title-preview-ready', 'true')
+    const result = await pending
+    expect(result.status).toBe('saved')
+    expect(context.adapter.saveDraft).toHaveBeenCalledOnce()
   })
 
 })

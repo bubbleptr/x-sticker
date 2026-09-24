@@ -42,7 +42,9 @@ function imageReady(editor: DraftEditor): boolean {
 }
 
 function matches(editor: DraftEditor, job: DraftJob): boolean {
-  return imageReady(editor) && normalizeText(editor.title.value) === normalizeText(job.title) && readBody(editor.body) === normalizeText(job.body)
+  return imageReady(editor) && normalizeText(editor.title.value) === normalizeText(job.title) &&
+    (editor.titleEcho === undefined || (editor.titleEcho !== null && normalizeText(editor.titleEcho) === normalizeText(job.title))) &&
+    readBody(editor.body) === normalizeText(job.body)
 }
 
 export async function runDraft(
@@ -152,11 +154,10 @@ export async function runDraft(
       }
       writing = true
       if (!title) {
-        const titleSetter = Object.getOwnPropertyDescriptor(root.defaultView!.HTMLInputElement.prototype, 'value')?.set
-        if (!titleSetter) throw new Error('无法填写标题，请手动接手')
-        titleSetter.call(editor.title, job.title)
-        editor.title.dispatchEvent(new Event('input', { bubbles: true }))
-        editor.title.dispatchEvent(new Event('change', { bubbles: true }))
+        editor.title.focus()
+        editor.title.setSelectionRange(0, editor.title.value.length)
+        if (!root.execCommand?.('insertText', false, job.title)) throw new Error('标题输入框不支持自动填写，请手动接手')
+        editor.title.blur()
       }
       if (!body && job.body) {
         editor.body.focus()
@@ -168,7 +169,7 @@ export async function runDraft(
         if (!root.execCommand?.('insertText', false, job.body)) throw new Error('正文编辑器不支持自动填写，请手动接手')
       }
       writing = false
-      const filled = await waitForValue(() => { const current = adapter.getEditor(); return current && matches(current, job) ? current : null }, '完整贴图内容', options.timeout, signal)
+      const filled = await waitForValue(() => { const current = adapter.getEditor(); return current && matches(current, job) ? current : null }, '完整贴图内容及平台标题预览', options.timeout, signal)
       await verifyImage(filled)
       checkAccount()
       await publish({ status: 'running', step: 'saving', account, message: '正在保存草稿' })
