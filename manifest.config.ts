@@ -1,6 +1,13 @@
 import { defineManifest } from '@crxjs/vite-plugin'
 import { BUNDLED_BACKGROUND_FILES } from './src/photoBackgrounds'
 
+const icons = {
+  '16': 'public/icons/icon16.png',
+  '32': 'public/icons/icon32.png',
+  '48': 'public/icons/icon48.png',
+  '128': 'public/icons/icon128.png',
+}
+
 export default defineManifest({
   manifest_version: 3,
   name: 'X Sticker',
@@ -9,6 +16,7 @@ export default defineManifest({
   version: '0.3.0',
   action: {
     default_title: 'X Sticker',
+    default_icon: icons,
   },
   background: {
     service_worker: 'src/background/sw.ts',
@@ -41,9 +49,5 @@ export default defineManifest({
       matches: ['https://x.com/*', 'https://twitter.com/*'],
     },
   ],
-  icons: {
-    '16': 'public/icons/icon16.png',
-    '48': 'public/icons/icon48.png',
-    '128': 'public/icons/icon128.png',
-  },
+  icons,
 })

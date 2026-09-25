@@ -4,6 +4,7 @@ import { createPreviewController } from '../render/preview'
 import { BACKGROUND_PRESETS, BACKGROUND_PRESET_GROUPS } from '../popup/presets'
 import { DEFAULT_INSPECTOR_PREFERENCES, loadInspectorPreferences, saveInspectorPreferences, type InspectorPreferences } from '../inspectorPreferences'
 import { createDraftComposer } from '../drafts/composer'
+import brandLogo from '../../public/icons/logo.svg?raw'
 import {
   DEFAULT_RENDER_OPTIONS,
   type AspectRatio,
@@ -31,7 +32,9 @@ const CSS = `
   box-shadow: 0 16px 48px #0f141938; display: flex; flex-direction: column;
 }
 .head { display: flex; align-items: center; justify-content: space-between; flex: 0 0 64px; gap: 12px; padding: 0 24px; border-bottom: 1px solid var(--line); }
-.brand { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -0.5px; }
+.brand { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -0.5px; white-space: nowrap; }
+.brand-logo { width: 28px; height: 28px; flex: none; pointer-events: none; user-select: none; }
+.brand-logo svg { display: block; width: 100%; height: 100%; }
 .head-actions { display: flex; align-items: center; gap: 12px; }
 button { font: inherit; cursor: pointer; }
 .quiet-button, .close { min-height: 36px; border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; color: var(--ink); background: #fff; }
@@ -86,6 +89,8 @@ canvas { display: block; flex: none; margin: auto; background: #fff; border-radi
 @media (max-width: 760px) {
   .sheet { width: calc(100vw - 16px); height: calc(100dvh - 16px); }
   .head { padding: 0 16px; flex-basis: 56px; }
+  .brand { gap: 8px; font-size: 18px; }
+  .brand-logo { width: 24px; height: 24px; }
   .head-actions { gap: 4px; }
   .workspace { display: flex; flex-direction: column; overflow: auto; }
   .preview-wrap { flex: 0 0 min(65dvh, 620px); }
@@ -109,7 +114,7 @@ export function openCardOverlay(result: ScrapeResult): void {
     <div class="scrim" id="scrim">
       <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-label="X Sticker" tabindex="-1">
         <div class="head">
-          <h1 class="brand">X Sticker</h1>
+          <h1 class="brand"><span class="brand-logo" aria-hidden="true">${brandLogo}</span><span>X Sticker</span></h1>
           <div class="head-actions">
             <button type="button" class="quiet-button" id="showProgress">同步记录</button>
             <button type="button" class="close" id="close">关闭</button>
