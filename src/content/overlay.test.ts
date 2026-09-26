@@ -1,6 +1,7 @@
 /** @vitest-environment happy-dom */
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { openCardOverlay } from './overlay'
+import { CHROME_RADIUS } from '../ui/chromeRadius'
 import { renderCardPng } from '../render/card'
 import { buildStatusArticleHtml } from '../render/statusHtml'
 import { mockSuccessfulBrowserImages } from '../render/test-browser-images'
@@ -183,4 +184,15 @@ it('coalesces name edits, rejects an older image, and cancels pending rendering 
   close()
   await vi.runOnlyPendingTimersAsync()
   expect(renderCardPng).toHaveBeenCalledTimes(2)
+})
+
+it('applies the shared radius scale to the overlay shell and inspector chrome', () => {
+  const root = open()
+  const css = Array.from(root.querySelectorAll('style'), (style) => style.textContent ?? '').join('\n')
+  for (const [token, value] of Object.entries(CHROME_RADIUS)) {
+    expect(css).toContain(`--radius-${token}: ${value}`)
+    expect(css).toContain(`var(--radius-${token}, ${value})`)
+  }
+  expect(css).toContain('.sheet')
+  expect(css).toContain('.draft-platform')
 })
