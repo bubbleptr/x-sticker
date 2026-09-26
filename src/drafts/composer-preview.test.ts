@@ -57,7 +57,7 @@ it('invalidates both actions immediately after changing image options and submit
   const download = root.querySelector<HTMLButtonElement>('#download')!
   const form = root.querySelector('form')!
   await vi.waitFor(() => expect(save.disabled).toBe(false))
-  root.querySelector<HTMLInputElement>('#showHandle')!.click()
+  root.querySelector<HTMLInputElement>('input[name=aspect][value="9:16"]')!.click()
   expect(save.disabled).toBe(true)
   expect(download.disabled).toBe(true)
   form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))

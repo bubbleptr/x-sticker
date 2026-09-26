@@ -12,6 +12,8 @@ interface DraftComposerOptions {
   progressContainer: HTMLElement
   onViewChange: (view: 'editor' | 'progress') => void
   onPlatformsChange?: (platforms: DraftPlatform[]) => void
+  /** Return false to cancel sync before the draft is created. */
+  beforeSubmit?: () => boolean
 }
 
 const CSS = `
@@ -382,6 +384,7 @@ export function createDraftComposer(container: HTMLElement, options: DraftCompos
   form.addEventListener('submit', async (event) => {
     event.preventDefault()
     if (!snapshot?.images?.length || submitting || submitted) return
+    if (options.beforeSubmit && !options.beforeSubmit()) return
     const platforms = platformInputs.filter((input) => input.checked).map((input) => input.value as DraftPlatform)
     if (!platforms.length) {
       setError(platformError, '至少选择一个平台')

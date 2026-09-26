@@ -49,9 +49,14 @@ export type Background =
 export type MetaLocale = 'zh-CN' | 'en'
 
 export type RenderOptions = {
-  /** Default false so the account handle is visible. */
+  /**
+   * 隐私模式 / 墙内. Hides the X handle and centers the avatar with the
+   * custom display name. When on, hideHandle and showAuthor are ignored.
+   */
+  privacyMode: boolean
+  /** Ignored when privacyMode is on. Default false so the handle is visible. */
   hideHandle: boolean
-  /** Default true. */
+  /** Ignored when privacyMode is on. Default true. */
   showAuthor: boolean
   /** Default '3:4'. */
   aspect: AspectRatio
@@ -64,6 +69,7 @@ export type RenderOptions = {
 }
 
 export const DEFAULT_RENDER_OPTIONS: RenderOptions = {
+  privacyMode: false,
   hideHandle: false,
   showAuthor: true,
   aspect: '3:4',

@@ -38,6 +38,7 @@ const post: PostText = {
 }
 
 const options: RenderOptions = {
+  privacyMode: false,
   hideHandle: false,
   showAuthor: true,
   aspect: '3:4',

@@ -53,13 +53,14 @@ canvas { display: block; flex: none; margin: auto; background: #fff; border-radi
 .inspector > * { flex-shrink: 0; }
 .appearance { display: grid; gap: 16px; }
 .section-title { margin: 0; font-size: 16px; font-weight: 650; }
-.author-options { display: flex; flex-wrap: wrap; gap: 8px 16px; }
+.privacy-block { display: grid; gap: 8px; }
 .row { display: flex; align-items: center; min-height: 36px; gap: 8px; font-size: 14px; cursor: pointer; }
 ${chromeCheckboxCss('.row input[type="checkbox"], .gallery-choice input[type="checkbox"]')}
 .name-field { display: grid; gap: 6px; font-size: 14px; }
 .name-field input { width: 100%; border: 1px solid var(--line); border-radius: ${chromeRadius('field')}; padding: 10px 14px; background: #fff; color: var(--ink); font: inherit; font-size: 16px; line-height: 1.45; }
-.name-field input:disabled { color: var(--muted); background: #f3f4f6; }
+.name-field input[aria-invalid="true"] { border-color: var(--danger); }
 .name-hint { font-size: 12px; color: var(--muted); }
+.name-error { font-size: 12px; color: var(--danger); }
 .fieldset { margin: 0; padding: 0; border: 0; display: flex; flex-wrap: wrap; gap: 8px; }
 .fieldset legend { padding: 0; margin-bottom: 8px; font-size: 14px; }
 .chip, .preset { display: inline-flex; align-items: center; justify-content: center; min-height: 36px; border: 1px solid var(--line); border-radius: ${chromeRadius('control')}; padding: 6px 14px; font: inherit; font-size: 14px; cursor: pointer; background: #fff; color: var(--ink); }
@@ -137,15 +138,16 @@ export function openCardOverlay(result: ScrapeResult): void {
           <aside class="inspector" aria-label="出图选项" aria-busy="true" inert>
             <section class="appearance" aria-label="贴图样式">
             <h2 class="section-title">封面样式</h2>
-            <div class="author-options">
-              <label class="row"><input type="checkbox" id="showHandle" checked />显示账号</label>
-              <label class="row"><input type="checkbox" id="showAuthor" checked />显示作者</label>
+            <div class="privacy-block">
+              <label class="row"><input type="checkbox" id="privacyMode" />隐私模式</label>
+              <p class="name-hint" id="privacyHint">开启后隐藏 X 账号，封面只显示头像和自定义用户名。</p>
+              <label class="name-field" id="customNameField" hidden>
+                <span>自定义用户名</span>
+                <input type="text" id="customName" autocomplete="off" spellcheck="false" aria-required="true" aria-describedby="customNameHint customNameError" placeholder="填写显示名" />
+                <span class="name-hint" id="customNameHint">必填。不显示原名和 @账号</span>
+                <span class="name-error" id="customNameError" hidden>请填写自定义用户名</span>
+              </label>
             </div>
-            <label class="name-field">
-              <span>自定义名字</span>
-              <input type="text" id="customName" autocomplete="off" spellcheck="false" aria-describedby="customNameHint" placeholder="使用帖子原名" />
-              <span class="name-hint" id="customNameHint">用于图片中的作者名，留空使用原名</span>
-            </label>
             <fieldset class="fieldset">
               <legend>比例</legend>
               <label class="chip"><input type="radio" name="aspect" value="3:4" checked /><span>3:4</span></label>
@@ -167,9 +169,10 @@ export function openCardOverlay(result: ScrapeResult): void {
 
   const q = <T extends Element>(sel: string) => shadow.querySelector(sel) as T
   const statusEl = q<HTMLParagraphElement>('#status')
-  const showHandleEl = q<HTMLInputElement>('#showHandle')
-  const showAuthorEl = q<HTMLInputElement>('#showAuthor')
+  const privacyModeEl = q<HTMLInputElement>('#privacyMode')
+  const customNameField = q<HTMLElement>('#customNameField')
   const customNameEl = q<HTMLInputElement>('#customName')
+  const customNameError = q<HTMLElement>('#customNameError')
   const downloadBtn = q<HTMLButtonElement>('#download')
   const preview = q<HTMLCanvasElement>('#preview')
   const bgPresetsEl = q<HTMLDivElement>('#bgPresets')
@@ -216,9 +219,32 @@ export function openCardOverlay(result: ScrapeResult): void {
       preferencesStatus.hidden = false
     })
   }
+  let privacyNameAttempted = false
+  const privacyNameMissing = () => privacyModeEl.checked && !customNameEl.value.trim()
+  const syncPrivacyControls = () => {
+    const on = privacyModeEl.checked
+    customNameField.hidden = !on
+    const message = on && privacyNameAttempted && privacyNameMissing() ? '请填写自定义用户名' : ''
+    customNameError.textContent = message || '请填写自定义用户名'
+    customNameError.hidden = !message
+    if (message) customNameEl.setAttribute('aria-invalid', 'true')
+    else customNameEl.removeAttribute('aria-invalid')
+  }
+  const rejectMissingPrivacyName = () => {
+    if (!privacyNameMissing()) {
+      syncPrivacyControls()
+      return false
+    }
+    privacyNameAttempted = true
+    syncPrivacyControls()
+    customNameEl.focus()
+    return true
+  }
+
   const composer = createDraftComposer(q<HTMLElement>('#draftComposer'), {
     progressContainer: progressScreen,
     onPlatformsChange: (platforms) => persistPreferences({ platforms }),
+    beforeSubmit: () => !rejectMissingPrivacyName(),
     onViewChange(view) {
       workspace.hidden = view !== 'editor'
       progressScreen.hidden = view !== 'progress'
@@ -236,9 +262,11 @@ export function openCardOverlay(result: ScrapeResult): void {
     const aspectInput = shadow.querySelector('input[name="aspect"]:checked') as HTMLInputElement | null
     const aspect = (aspectInput?.value as AspectRatio | undefined) ?? DEFAULT_RENDER_OPTIONS.aspect
     const preset = BACKGROUND_PRESETS.find((p) => p.id === selectedBgId) ?? BACKGROUND_PRESETS[0]!
+    const privacyMode = privacyModeEl.checked
     return {
-      hideHandle: !showHandleEl.checked,
-      showAuthor: showAuthorEl.checked,
+      privacyMode,
+      hideHandle: privacyMode,
+      showAuthor: true,
       aspect,
       background: preset.background,
     }
@@ -317,7 +345,7 @@ export function openCardOverlay(result: ScrapeResult): void {
     const token = invalidatePreview()
     try {
       const customName = customNameEl.value.trim()
-      const renderedPost = customName ? { ...post, authorDisplayName: customName } : post
+      const renderedPost = privacyModeEl.checked ? { ...post, authorDisplayName: customName } : post
       const bytes = await renderCardPng(renderedPost, currentOptions())
       if (token !== renderToken || !host.isConnected) return
       cover.image = encodeImageAsset(bytes, 'image/png', '01-cover.png')
@@ -417,6 +445,7 @@ export function openCardOverlay(result: ScrapeResult): void {
   updateBackgroundSelection()
 
   const downloadPng = async () => {
+    if (rejectMissingPrivacyName()) return
     if (!exportImages || !post || downloading) return
     const images = exportImages.map((image) => ({ ...image }))
     downloading = true
@@ -472,16 +501,14 @@ export function openCardOverlay(result: ScrapeResult): void {
   scrim.addEventListener('click', (event) => {
     if (event.target === scrim) close()
   })
-  showHandleEl.addEventListener('change', () => {
-    persistPreferences({ showHandle: showHandleEl.checked })
-    void refreshPreview()
-  })
-  showAuthorEl.addEventListener('change', () => {
-    customNameEl.disabled = !showAuthorEl.checked
-    persistPreferences({ showAuthor: showAuthorEl.checked })
+  privacyModeEl.addEventListener('change', () => {
+    syncPrivacyControls()
+    if (privacyModeEl.checked && !customNameEl.value.trim()) customNameEl.focus()
+    persistPreferences({ privacyMode: privacyModeEl.checked })
     void refreshPreview()
   })
   customNameEl.addEventListener('input', () => {
+    syncPrivacyControls()
     persistPreferences({ customName: customNameEl.value })
     invalidatePreview()
     clearTimeout(nameRenderTimer)
@@ -502,10 +529,9 @@ export function openCardOverlay(result: ScrapeResult): void {
   setStatus(post ? '正在读取偏好…' : '这条帖子没有可用的文字或静态图片。', !post)
   void loadInspectorPreferences().then((preferences) => {
     if (!host.isConnected) return
-    showHandleEl.checked = preferences.showHandle
-    showAuthorEl.checked = preferences.showAuthor
+    privacyModeEl.checked = preferences.privacyMode
     customNameEl.value = preferences.customName
-    customNameEl.disabled = !showAuthorEl.checked
+    syncPrivacyControls()
     q<HTMLInputElement>(`input[name="aspect"][value="${preferences.aspect}"]`).checked = true
     selectedBgId = preferences.backgroundId
     updateBackgroundSelection()

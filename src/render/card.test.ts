@@ -37,6 +37,7 @@ const fixture: PostText = {
 }
 
 const baseOptions: RenderOptions = {
+  privacyMode: false,
   hideHandle: false,
   showAuthor: true,
   aspect: '3:4',
@@ -97,13 +98,24 @@ describe('tokenizeForWrap / wrapLines', () => {
 })
 
 describe('cardVisibleText', () => {
-  it('respects hideHandle', () => {
+  it('respects hideHandle when privacy mode is off', () => {
     expect(
-      cardVisibleText(fixture, { hideHandle: true, showAuthor: true }).handleLine,
+      cardVisibleText(fixture, { privacyMode: false, hideHandle: true, showAuthor: true }).handleLine,
     ).toBeUndefined()
     expect(
-      cardVisibleText(fixture, { hideHandle: false, showAuthor: true }).handleLine,
+      cardVisibleText(fixture, { privacyMode: false, hideHandle: false, showAuthor: true }).handleLine,
     ).toBe('@ninthbit_ai')
+  })
+
+  it('shows only the custom name when privacy mode is on', () => {
+    expect(cardVisibleText(
+      { ...fixture, authorDisplayName: '墙内的我' },
+      { privacyMode: true, hideHandle: false, showAuthor: false },
+    )).toEqual({
+      body: fixture.text.trim(),
+      displayName: '墙内的我',
+      handleLine: undefined,
+    })
   })
 })
 
@@ -121,6 +133,21 @@ describe('action icon SVG (live X scrape)', () => {
     expect(reply).toContain(X_ACTION_ICON_PATHS.reply)
 
     const html = buildStatusArticleHtml(fixture, baseOptions)
+    expect(html).toContain('class="header"')
+    expect(html).not.toContain('header privacy')
+    expect(html).toContain('@ninthbit_ai')
+    expect(html).toContain('align-items: flex-start')
+    const privateHtml = buildStatusArticleHtml(
+      { ...fixture, authorDisplayName: '墙内的我' },
+      { ...baseOptions, privacyMode: true },
+    )
+    expect(privateHtml).toContain('class="header privacy"')
+    expect(privateHtml).toContain('墙内的我')
+    expect(privateHtml).not.toContain('@ninthbit_ai')
+    expect(privateHtml).not.toContain('Kieran Zhang')
+    expect(privateHtml).toContain('.header.privacy')
+    expect(privateHtml).toContain('align-items: center')
+    expect(privateHtml).toContain('fill="#1D9BF0"')
     expect(html).toContain('data-icon="icon-retweet-stroke"')
     expect(html).toContain('data-icon="icon-heart-stroke"')
     expect(html).toContain('data-icon="icon-bookmark-stroke"')
