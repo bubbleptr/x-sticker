@@ -5,6 +5,7 @@ import { BACKGROUND_PRESETS, BACKGROUND_PRESET_GROUPS } from '../popup/presets'
 import { DEFAULT_INSPECTOR_PREFERENCES, loadInspectorPreferences, saveInspectorPreferences, type InspectorPreferences } from '../inspectorPreferences'
 import { createDraftComposer } from '../drafts/composer'
 import brandLogo from '../../public/icons/logo.svg?raw'
+import { chromeCheckboxCss, chromeRadius, chromeRadiusVars } from '../ui/chromeRadius'
 import {
   DEFAULT_RENDER_OPTIONS,
   type AspectRatio,
@@ -17,7 +18,7 @@ import {
 const HOST_ID = 'katie-card-overlay'
 
 const CSS = `
-:host { all: initial; --ink: #0f1419; --muted: #536471; --line: #e4e7eb; --accent: #0f1419; --danger: #b91c1c; }
+:host { all: initial; --ink: #0f1419; --muted: #536471; --line: #e4e7eb; --accent: #0f1419; --danger: #b91c1c; ${chromeRadiusVars()} }
 *, *::before, *::after { box-sizing: border-box; }
 [hidden] { display: none !important; }
 .scrim {
@@ -28,8 +29,8 @@ const CSS = `
 }
 .sheet {
   width: min(1280px, calc(100vw - 48px)); height: min(960px, calc(100dvh - 48px));
-  overflow: hidden; background: #fff; border-radius: 16px;
-  box-shadow: 0 16px 48px #0f141938; display: flex; flex-direction: column;
+  overflow: hidden; background: #fff; border-radius: ${chromeRadius('shell')};
+  box-shadow: 0 24px 64px #0f14192e; display: flex; flex-direction: column;
 }
 .head { display: flex; align-items: center; justify-content: space-between; flex: 0 0 64px; gap: 12px; padding: 0 24px; border-bottom: 1px solid var(--line); }
 .brand { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -0.5px; white-space: nowrap; }
@@ -37,31 +38,31 @@ const CSS = `
 .brand-logo svg { display: block; width: 100%; height: 100%; }
 .head-actions { display: flex; align-items: center; gap: 12px; }
 button { font: inherit; cursor: pointer; }
-.quiet-button, .close { min-height: 36px; border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; color: var(--ink); background: #fff; }
+.quiet-button, .close { min-height: 36px; border: 1px solid var(--line); border-radius: ${chromeRadius('control')}; padding: 6px 16px; color: var(--ink); background: #fff; }
 .close { border-color: transparent; color: var(--muted); }
 :is(.quiet-button, .close, .preset):not(:disabled):hover { background: #f1f3f5; }
 button:disabled { opacity: 0.45; cursor: not-allowed; }
-.workspace { display: grid; grid-template-columns: minmax(0, 1fr) 360px; flex: 1; min-height: 0; }
-.preview-wrap { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: #f3f4f6; }
+.workspace { display: grid; grid-template-columns: minmax(0, 1fr) 360px; flex: 1; min-height: 0; gap: 12px; padding: 12px; background: #f3f4f6; }
+.preview-wrap { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: #f7f8fa; border-radius: ${chromeRadius('surface')}; overflow: hidden; }
 .preview-toolbar { display: flex; flex: 0 0 60px; align-items: center; justify-content: space-between; gap: 12px; padding: 0 24px; font-size: 13px; color: var(--muted); }
-.preview-viewport { display: flex; flex: 1; min-width: 0; min-height: 0; overflow: auto; margin: 0 24px; }
-canvas { display: block; flex: none; margin: auto; background: #fff; border-radius: 4px; box-shadow: 0 4px 20px #0f14191a; }
+.preview-viewport { display: flex; flex: 1; min-width: 0; min-height: 0; overflow: auto; margin: 0 12px 8px; padding: 8px; }
+canvas { display: block; flex: none; margin: auto; background: #fff; border-radius: ${chromeRadius('surface')}; box-shadow: 0 10px 28px #0f14191f; }
 .status { margin: 0; min-height: 36px; padding: 9px 24px; font-size: 12px; color: var(--muted); }
 .status.error { color: var(--danger); }
-.inspector { min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 24px; border-left: 1px solid var(--line); display: flex; flex-direction: column; gap: 20px; }
+.inspector { min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 24px; border-radius: ${chromeRadius('surface')}; background: #fff; display: flex; flex-direction: column; gap: 20px; }
 .inspector > * { flex-shrink: 0; }
 .appearance { display: grid; gap: 16px; }
 .section-title { margin: 0; font-size: 16px; font-weight: 650; }
 .author-options { display: flex; flex-wrap: wrap; gap: 8px 16px; }
 .row { display: flex; align-items: center; min-height: 36px; gap: 8px; font-size: 14px; cursor: pointer; }
-.row input { margin: 0; width: 16px; height: 16px; accent-color: var(--accent); }
+${chromeCheckboxCss('.row input[type="checkbox"], .gallery-choice input[type="checkbox"]')}
 .name-field { display: grid; gap: 6px; font-size: 14px; }
-.name-field input { width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; background: #fff; color: var(--ink); font: inherit; font-size: 16px; line-height: 1.45; }
+.name-field input { width: 100%; border: 1px solid var(--line); border-radius: ${chromeRadius('field')}; padding: 10px 14px; background: #fff; color: var(--ink); font: inherit; font-size: 16px; line-height: 1.45; }
 .name-field input:disabled { color: var(--muted); background: #f3f4f6; }
 .name-hint { font-size: 12px; color: var(--muted); }
 .fieldset { margin: 0; padding: 0; border: 0; display: flex; flex-wrap: wrap; gap: 8px; }
 .fieldset legend { padding: 0; margin-bottom: 8px; font-size: 14px; }
-.chip, .preset { display: inline-flex; align-items: center; justify-content: center; min-height: 36px; border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; font: inherit; font-size: 14px; cursor: pointer; background: #fff; color: var(--ink); }
+.chip, .preset { display: inline-flex; align-items: center; justify-content: center; min-height: 36px; border: 1px solid var(--line); border-radius: ${chromeRadius('control')}; padding: 6px 14px; font: inherit; font-size: 14px; cursor: pointer; background: #fff; color: var(--ink); }
 .chip:has(input:checked), .preset[aria-pressed="true"] { border-color: var(--ink); background: #f1f3f5; }
 .chip input { position: absolute; opacity: 0; pointer-events: none; }
 .presets { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -72,12 +73,12 @@ canvas { display: block; flex: none; margin: auto; background: #fff; border-radi
 .download { width: 100%; }
 .gallery { display: flex; gap: 10px; overflow-x: auto; flex: none; padding: 12px 24px 4px; }
 .gallery-page { flex: 0 0 84px; min-width: 0; }
-.thumbnail { display: block; width: 84px; height: 72px; padding: 4px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--muted); font-size: 12px; overflow: hidden; }
+.thumbnail { display: block; width: 84px; height: 72px; padding: 4px; border: 1px solid var(--line); border-radius: ${chromeRadius('surface')}; background: #fff; color: var(--muted); font-size: 12px; overflow: hidden; }
 .thumbnail[aria-pressed="true"] { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
 .thumbnail img { width: 100%; height: 100%; object-fit: contain; display: block; }
 .gallery-page[data-selected="false"] .thumbnail { opacity: 0.5; }
 .gallery-choice { display: flex; align-items: center; justify-content: center; gap: 5px; min-height: 40px; font-size: 12px; cursor: pointer; }
-.gallery-choice input { width: 16px; height: 16px; accent-color: var(--ink); margin: 0; }
+.gallery-choice input { margin: 0; }
 .gallery-cover-label { text-align: center; display: block; padding: 10px 0; font-size: 12px; }
 .preview-label { font-variant-numeric: tabular-nums; }
 .preview-empty { margin: auto; padding: 24px; max-width: 38ch; text-align: center; color: var(--muted); }
@@ -92,11 +93,11 @@ canvas { display: block; flex: none; margin: auto; background: #fff; border-radi
   .brand { gap: 8px; font-size: 18px; }
   .brand-logo { width: 24px; height: 24px; }
   .head-actions { gap: 4px; }
-  .workspace { display: flex; flex-direction: column; overflow: auto; }
+  .workspace { display: flex; flex-direction: column; overflow: auto; padding: 8px; gap: 8px; }
   .preview-wrap { flex: 0 0 min(65dvh, 620px); }
   .preview-toolbar { padding: 0 16px; flex-basis: 52px; }
-  .preview-viewport { margin: 0 16px; }
-  .inspector { flex: 0 0 auto; overflow: visible; padding: 20px; border-left: 0; border-top: 1px solid var(--line); }
+  .preview-viewport { margin: 0 12px 8px; }
+  .inspector { flex: 0 0 auto; overflow: visible; padding: 20px; }
   .progress-screen { padding: 20px; }
 }
 `

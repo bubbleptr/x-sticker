@@ -1,5 +1,6 @@
 import type { PostText } from '../types'
 import type { ImageAsset } from '../media'
+import { chromeCheckboxCss, chromeRadius, chromeRadiusVars } from '../ui/chromeRadius'
 import { DRAFT_TARGETS, type DraftJob, type DraftMessage, type DraftPlatform, type DraftResponse } from './types'
 
 interface DraftSnapshot {
@@ -14,7 +15,7 @@ interface DraftComposerOptions {
 }
 
 const CSS = `
-.draft-composer, .draft-progress { font-size: 14px; color: var(--ink, #17202a); }
+.draft-composer, .draft-progress { font-size: 14px; color: var(--ink, #17202a); ${chromeRadiusVars()} }
 .draft-composer *, .draft-progress * { box-sizing: border-box; }
 .draft-composer { border-top: 1px solid var(--line, #e5e9ee); padding-top: 18px; }
 .draft-composer h2 { margin: 0; font-size: 14px; font-weight: 650; }
@@ -24,17 +25,17 @@ const CSS = `
 .draft-composer fieldset { border: 0; padding: 0; margin: 0; }
 .draft-composer legend { padding: 0; margin-bottom: 8px; font-size: 12px; }
 .draft-platforms { display: flex; gap: 8px; }
-.draft-platform { flex: 1; display: flex; align-items: center; gap: 8px; cursor: pointer; min-height: 40px; border: 1px solid var(--line, #e5e9ee); padding: 8px 12px; border-radius: 8px; }
+.draft-platform { flex: 1; display: flex; align-items: center; gap: 8px; cursor: pointer; min-height: 40px; border: 1px solid var(--line, #e5e9ee); padding: 8px 14px; border-radius: ${chromeRadius('control')}; }
 .draft-platform:has(:checked) { border-color: var(--ink, #17202a); background: #f4f6f8; }
-.draft-composer input[type=checkbox] { margin: 0; accent-color: var(--ink, #17202a); width: 15px; height: 15px; }
+${chromeCheckboxCss('.draft-composer input[type="checkbox"]')}
 .draft-fields { display: grid; gap: 12px; }
 .draft-field { display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
 .draft-field-label { display: flex; justify-content: space-between; gap: 12px; }
 .draft-title-count, .draft-body-count { font-variant-numeric: tabular-nums; }
-.draft-composer input[type=text], .draft-composer textarea { width: 100%; border: 1px solid var(--line, #d8dfe7); border-radius: 8px; background: #fff; color: inherit; padding: 9px 10px; font: inherit; font-size: 16px; line-height: 1.45; }
+.draft-composer input[type=text], .draft-composer textarea { width: 100%; border: 1px solid var(--line, #d8dfe7); border-radius: ${chromeRadius('field')}; background: #fff; color: inherit; padding: 10px 14px; font: inherit; font-size: 16px; line-height: 1.45; }
 .draft-composer textarea { resize: vertical; min-height: 112px; }
 .draft-composer [aria-invalid=true] { border-color: var(--danger, #b42318); }
-.draft-composer button, .draft-progress button { cursor: pointer; font: inherit; border-radius: 8px; min-height: 40px; padding: 9px 14px; }
+.draft-composer button, .draft-progress button { cursor: pointer; font: inherit; border-radius: ${chromeRadius('control')}; min-height: 40px; padding: 9px 16px; }
 .draft-composer button:disabled, .draft-progress button:disabled { cursor: not-allowed; background: #e5e9ee; color: #798593; }
 .draft-composer button:not(:disabled):active, .draft-progress button:not(:disabled):active { transform: scale(0.98); }
 .draft-composer :is(input, textarea, button):focus-visible, .draft-progress button:focus-visible { outline: 2px solid var(--accent, #1d9bf0); outline-offset: 3px; }
@@ -47,9 +48,9 @@ const CSS = `
 .draft-progress-heading { margin: 32px 0 10px; font-size: 26px; line-height: 1.3; font-weight: 650; letter-spacing: -0.02em; }
 .draft-progress-heading:focus { outline: none; }
 .draft-progress-description { color: var(--muted, #617080); font-size: 14px; max-width: 48ch; }
-.draft-progress .draft-submit-error { margin-top: 20px; padding: 14px; border: 1px solid #efc9c4; border-radius: 10px; background: #fff9f8; font-size: 14px; }
+.draft-progress .draft-submit-error { margin-top: 20px; padding: 16px; border: 1px solid #efc9c4; border-radius: ${chromeRadius('surface')}; background: #fff9f8; font-size: 14px; }
 .draft-job-list { list-style: none; margin: 28px 0 24px; padding: 0; display: grid; gap: 12px; }
-.draft-job { border: 1px solid var(--line, #e5e9ee); border-radius: 12px; padding: 20px; display: grid; gap: 10px; }
+.draft-job { border: 1px solid var(--line, #e5e9ee); border-radius: ${chromeRadius('surface')}; padding: 20px; display: grid; gap: 10px; }
 .draft-job-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; font-size: 15px; font-weight: 600; }
 .draft-job-state { font-size: 12px; font-weight: 500; color: var(--muted, #617080); }
 .draft-job[data-status=running] .draft-job-state::before { content: ''; display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: currentColor; animation: draft-pulse 1.5s ease-in-out infinite; }
