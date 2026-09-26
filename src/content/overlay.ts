@@ -59,7 +59,6 @@ ${chromeCheckboxCss('.row input[type="checkbox"], .gallery-choice input[type="ch
 .name-field { display: grid; gap: 6px; font-size: 14px; }
 .name-field input { width: 100%; border: 1px solid var(--line); border-radius: ${chromeRadius('field')}; padding: 10px 14px; background: #fff; color: var(--ink); font: inherit; font-size: 16px; line-height: 1.45; }
 .name-field input[aria-invalid="true"] { border-color: var(--danger); }
-.name-hint { font-size: 12px; color: var(--muted); }
 .name-error { font-size: 12px; color: var(--danger); }
 .fieldset { margin: 0; padding: 0; border: 0; display: flex; flex-wrap: wrap; gap: 8px; }
 .fieldset legend { padding: 0; margin-bottom: 8px; font-size: 14px; }
@@ -140,11 +139,9 @@ export function openCardOverlay(result: ScrapeResult): void {
             <h2 class="section-title">封面样式</h2>
             <div class="privacy-block">
               <label class="row"><input type="checkbox" id="privacyMode" />隐私模式</label>
-              <p class="name-hint" id="privacyHint">开启后隐藏 X 账号，封面只显示头像和自定义用户名。</p>
               <label class="name-field" id="customNameField" hidden>
-                <span>自定义用户名</span>
-                <input type="text" id="customName" autocomplete="off" spellcheck="false" aria-required="true" aria-describedby="customNameHint customNameError" placeholder="填写显示名" />
-                <span class="name-hint" id="customNameHint">必填。不显示原名和 @账号</span>
+                <span>自定义用户名（必填）</span>
+                <input type="text" id="customName" autocomplete="off" spellcheck="false" aria-required="true" aria-describedby="customNameError" placeholder="填写显示名" />
                 <span class="name-error" id="customNameError" hidden>请填写自定义用户名</span>
               </label>
             </div>
