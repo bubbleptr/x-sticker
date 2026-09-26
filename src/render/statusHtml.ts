@@ -1,5 +1,6 @@
 import type { PostText, RenderOptions } from '../types'
 import { formatCompactCount, formatMetaClock } from './format'
+import { resolveCardIdentity } from './identity'
 import { buildActionIconSvg, VERIFIED_BADGE_SVG } from './xIcons'
 
 const FONT =
@@ -54,10 +55,10 @@ export function buildStatusArticleHtml(
   const locale = options.locale ?? 'zh-CN'
   const showMenu = options.showMenu !== false
   const width = opts?.articleWidth ?? 598
-  const showName = Boolean(options.showAuthor && post.authorDisplayName?.trim())
-  const showHandle = Boolean(!options.hideHandle && post.handle?.trim())
-  const name = showName ? post.authorDisplayName!.trim() : ''
-  const handle = showHandle ? `@${post.handle!.trim().replace(/^@+/, '')}` : ''
+  const identity = resolveCardIdentity(post, options)
+  const showHandle = Boolean(identity.handleLine)
+  const name = identity.displayName ?? ''
+  const handle = identity.handleLine ?? ''
   const display = name || (handle ? handle.replace(/^@/, '') : '用户')
 
   const clock = formatMetaClock(post.createdAt, locale)
@@ -112,6 +113,18 @@ export function buildStatusArticleHtml(
     display: flex;
     align-items: flex-start;
     gap: 12px;
+  }
+  /* Privacy: one identity row. Avatar (40px) and the name line share a vertical center. */
+  .header.privacy {
+    align-items: center;
+  }
+  .header.privacy .id {
+    display: flex;
+    align-items: center;
+    min-height: 40px;
+  }
+  .header.privacy .menu {
+    padding-top: 0;
   }
   .avatar {
     width: 40px;
@@ -220,7 +233,7 @@ export function buildStatusArticleHtml(
 </head>
 <body>
   <article class="article">
-    <div class="header">
+    <div class="header${identity.privacyMode ? ' privacy' : ''}">
       <div class="avatar">${avatarInner}</div>
       <div class="id">
         <div class="name-row">

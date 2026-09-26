@@ -3,6 +3,7 @@ import { ASPECT_SIZE } from '../types'
 import { isBundledBackgroundFile, type BundledBackgroundFile } from '../photoBackgrounds'
 import { formatCompactCount, formatMetaClock } from './format'
 import { drawStatusCard, paintOuterBackground } from './outerFrame'
+import { resolveCardIdentity } from './identity'
 import { buildStatusArticleHtml } from './statusHtml'
 
 export { formatCompactCount, formatMetaClock } from './format'
@@ -21,18 +22,11 @@ const EMOJI_RE = /\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?(?:\u200D\p{Extende
 /** Pure text decisions — layout helpers for tests / options. */
 export function cardVisibleText(
   post: PostText,
-  options: Pick<RenderOptions, 'hideHandle' | 'showAuthor'>,
+  options: Pick<RenderOptions, 'privacyMode' | 'hideHandle' | 'showAuthor'>,
 ): { body: string; displayName?: string; handleLine?: string } {
   const body = post.text.trim()
-  const displayName =
-    options.showAuthor && post.authorDisplayName?.trim()
-      ? post.authorDisplayName.trim()
-      : undefined
-  const handleLine =
-    !options.hideHandle && post.handle?.trim()
-      ? `@${post.handle.trim().replace(/^@+/, '')}`
-      : undefined
-  return { body, displayName, handleLine }
+  const identity = resolveCardIdentity(post, options)
+  return { body, displayName: identity.displayName, handleLine: identity.handleLine }
 }
 
 /** Optional emoji strip for environments without color emoji (HTML path keeps emoji). */
