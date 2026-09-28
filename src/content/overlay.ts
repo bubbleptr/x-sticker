@@ -79,7 +79,6 @@ ${chromeCheckboxCss('.row input[type="checkbox"], .gallery-choice input[type="ch
 .gallery-page[data-selected="false"] .thumbnail { opacity: 0.5; }
 .gallery-choice { display: flex; align-items: center; justify-content: center; gap: 5px; min-height: 40px; font-size: 12px; cursor: pointer; }
 .gallery-choice input { margin: 0; }
-.gallery-note { color: var(--muted); }
 .gallery-cover-label { text-align: center; display: block; padding: 10px 0; font-size: 12px; }
 .preview-label { font-variant-numeric: tabular-nums; }
 .preview-empty { margin: auto; padding: 24px; max-width: 38ch; text-align: center; color: var(--muted); }
@@ -312,8 +311,6 @@ export function openCardOverlay(result: ScrapeResult): void {
       thumb.hidden = !page.image
       placeholder.hidden = Boolean(page.image)
       placeholder.textContent = page.error ? '加载失败' : '加载中…'
-      const note = item.querySelector<HTMLElement>('.gallery-note')
-      if (note) note.hidden = !(page === leadPhoto && coverHasLeadPhoto)
     }
   }
 
@@ -420,13 +417,6 @@ export function openCardOverlay(result: ScrapeResult): void {
         else syncImages()
       })
       label.append(checkbox, page.label)
-      if (page === leadPhoto) {
-        const note = document.createElement('span')
-        note.className = 'gallery-note'
-        note.textContent = '· 已放进封面'
-        note.hidden = true
-        label.append(note)
-      }
       item.append(label)
     }
     gallery.append(item)

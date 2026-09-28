@@ -59,8 +59,6 @@ it('puts the first photo inside a short cover and stops exporting it separately'
   await vi.waitFor(() => expect(download.disabled).toBe(false))
   expect(vi.mocked(renderCardWithPhotoPng).mock.lastCall?.[2]).toBe(photo.dataUrl)
   expect(renderCardPng).not.toHaveBeenCalled()
-  const note = root.querySelector<HTMLElement>('[data-page-id="photo-0"] .gallery-note')!
-  expect(note.hidden).toBe(false)
   expect(await exportedNames(root)).toEqual(['01-cover.png', '02-photo.png'])
 
   // Unchecking the merged photo removes it from the cover instead of hiding it silently.
@@ -68,7 +66,6 @@ it('puts the first photo inside a short cover and stops exporting it separately'
   expect(download.disabled).toBe(true)
   await vi.waitFor(() => expect(renderCardPng).toHaveBeenCalledTimes(1))
   await vi.waitFor(() => expect(download.disabled).toBe(false))
-  expect(note.hidden).toBe(true)
   expect(await exportedNames(root)).toEqual(['01-cover.png', '02-photo.png'])
 })
 

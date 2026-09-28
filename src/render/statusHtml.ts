@@ -171,8 +171,6 @@ export function buildStatusArticleHtml(
   .media {
     margin-top: 12px;
     border: 1px solid #cfd9de;
-    border-radius: 16px;
-    overflow: hidden;
   }
   .media img { display: block; width: 100%; height: auto; }
   .meta {
