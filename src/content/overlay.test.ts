@@ -6,7 +6,7 @@ import { renderCardPng } from '../render/card'
 import { buildStatusArticleHtml } from '../render/statusHtml'
 import { mockSuccessfulBrowserImages } from '../render/test-browser-images'
 
-vi.mock('../render/card', () => ({ renderCardPng: vi.fn() }))
+vi.mock('../render/card', () => ({ renderCardPng: vi.fn(), renderCardWithPhotoPng: vi.fn() }))
 
 let stored: Record<string, unknown>
 const get = vi.fn()

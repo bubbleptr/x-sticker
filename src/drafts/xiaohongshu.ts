@@ -26,6 +26,7 @@ export function createXiaohongshuAdapter(
   }
   return {
     storage: 'browser',
+    imageIdentity: 'source',
     getAccount: () => unique<HTMLElement>('.user-info .name-box', '账号')?.textContent?.trim() || null,
     getEditor,
     getUploadInput: () => {

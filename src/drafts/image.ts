@@ -29,14 +29,20 @@ export async function fingerprintImage(image: HTMLImageElement | null): Promise<
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')
 }
 
-export async function fingerprintSourceImage(asset: ImageAsset, root: Document): Promise<string> {
+export type SourceImageIdentity = { hash: string; width: number; height: number }
+
+export async function fingerprintSourceImage(asset: ImageAsset, root: Document): Promise<SourceImageIdentity> {
   const image = root.createElement('img')
   image.hidden = true
-  image.src = asset.dataUrl
   root.body.append(image)
   try {
-    await image.decode()
-    return await fingerprintImage(image)
+    // Chrome leaves img.decode() pending in background tabs, where draft jobs start; load events still fire.
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve()
+      image.onerror = () => reject(new Error('图片解码失败'))
+      image.src = asset.dataUrl
+    })
+    return { hash: await fingerprintImage(image), width: image.naturalWidth, height: image.naturalHeight }
   } catch (error) {
     throw new Error(`无法核对源图片「${asset.filename}」：${error instanceof Error ? error.message : '图片解码失败'}`)
   } finally {

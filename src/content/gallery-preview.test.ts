@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { openCardOverlay } from './overlay'
 import { renderCardPng } from '../render/card'
 
-vi.mock('../render/card', () => ({ renderCardPng: vi.fn() }))
+vi.mock('../render/card', () => ({ renderCardPng: vi.fn(), renderCardWithPhotoPng: vi.fn() }))
 const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a9WQAAAAASUVORK5CYII='
 const image = { filename: 'photo.png', mimeType: 'image/png', dataUrl: `data:image/png;base64,${png}` }
 const loads: ControlledImage[] = []

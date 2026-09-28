@@ -8,6 +8,7 @@ import {
   coverDestRect,
   drawStatusCard,
   paintOuterBackground,
+  statusCardFits,
   statusCardPlacement,
 } from './outerFrame'
 
@@ -120,6 +121,15 @@ describe('statusCardPlacement', () => {
       width: 864,
       height: 432,
     })
+  })
+})
+
+describe('statusCardFits', () => {
+  it('accepts a card only while it keeps the side inset as top and bottom margin', () => {
+    // 1080 wide: 108 px inset, 864 px card, 1440 - 2 * 108 = 1224 px usable height.
+    expect(statusCardFits({ width: 864, height: 1224 }, 1080, 1440)).toBe(true)
+    expect(statusCardFits({ width: 864, height: 1226 }, 1080, 1440)).toBe(false)
+    expect(statusCardFits({ width: 598, height: 900 }, 1080, 1920)).toBe(true)
   })
 })
 

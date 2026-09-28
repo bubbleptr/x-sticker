@@ -11,6 +11,11 @@ export interface DraftEditor {
 
 export interface PlatformAdapter {
   storage: 'browser' | 'account' | 'unknown'
+  /**
+   * 'source': the editor shows the uploaded pixels unchanged.
+   * 'platform': the editor re-encodes uploads, so the first uploaded rendering becomes the identity.
+   */
+  imageIdentity: 'source' | 'platform'
   getAccount(): string | null
   getUploadInput(): HTMLInputElement | null
   getEditor(): DraftEditor | null

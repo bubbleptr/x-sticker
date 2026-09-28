@@ -50,7 +50,7 @@ function bodyHtml(post: PostText): string {
 export function buildStatusArticleHtml(
   post: PostText,
   options: RenderOptions,
-  opts?: { avatarDataUrl?: string; articleWidth?: number },
+  opts?: { avatarDataUrl?: string; articleWidth?: number; photoDataUrl?: string },
 ): string {
   const locale = options.locale ?? 'zh-CN'
   const showMenu = options.showMenu !== false
@@ -168,6 +168,11 @@ export function buildStatusArticleHtml(
   .body .line { margin: 0; }
   .body strong { font-weight: 700; }
   .body .blank { height: 24px; margin: 0; }
+  .media {
+    margin-top: 12px;
+    border: 1px solid #cfd9de;
+  }
+  .media img { display: block; width: 100%; height: auto; }
   .meta {
     margin-top: 16px;
     padding: 16px 0;
@@ -245,6 +250,7 @@ export function buildStatusArticleHtml(
       ${showMenu ? `<div class="menu" aria-hidden="true">···</div>` : ''}
     </div>
     <div class="body">${bodyHtml(post)}</div>
+    ${opts?.photoDataUrl ? `<div class="media"><img src="${escapeHtml(opts.photoDataUrl)}" alt="" /></div>` : ''}
     <div class="meta">${escapeHtml(clock)}${viewsHtml}</div>
     <div class="actions">
       ${action(buildActionIconSvg('reply'), count(post.stats?.replies, muted), muted)}

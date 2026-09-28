@@ -1,6 +1,6 @@
 import { decodeImageAsset, validateImageAssets, type ImageAsset } from '../media'
 import { isVisible, waitForValue } from './dom'
-import { fingerprintImage, fingerprintSourceImage } from './image'
+import { fingerprintImage, fingerprintSourceImage, type SourceImageIdentity } from './image'
 import type { DraftEditor, PlatformAdapter } from './platform'
 import type { DraftJob, DraftUpdate } from './types'
 
@@ -125,22 +125,45 @@ export async function runDraft(
     if (images.length !== job.assets.length || images.some((image, index) =>
       image.filename !== job.assets[index]!.filename || image.mimeType !== job.assets[index]!.mimeType,
     )) throw new Error('草稿源图片与任务记录不一致，请手动核对')
-    const sourceHashes: string[] = []
+    const sources: SourceImageIdentity[] = []
     for (const image of images) {
       signal.throwIfAborted()
-      sourceHashes.push(await fingerprintSourceImage(image, root))
+      sources.push(await fingerprintSourceImage(image, root))
     }
-    if (imageHashes && (imageHashes.length !== sourceHashes.length || imageHashes.some((hash, index) => hash !== sourceHashes[index]))) {
+    const platformIdentity = adapter.imageIdentity === 'platform'
+    // Source-identity platforms must show exact source pixels; platform-identity ones are pinned at upload.
+    let expectedHashes = platformIdentity ? imageHashes : sources.map((source) => source.hash)
+    if (!platformIdentity && imageHashes && (imageHashes.length !== sources.length || imageHashes.some((hash, index) => hash !== sources[index]!.hash))) {
       throw new Error('源图片与已有核对记录不一致，请手动核对草稿')
+    }
+    const readImageHashes = async (editor: DraftEditor) => {
+      const hashes: string[] = []
+      for (const [index, image] of editor.images.entries()) {
+        if (platformIdentity) {
+          const source = sources[index]!
+          // Re-encoding may resize, but it keeps each picture's shape; a mismatch means a wrong or reordered image.
+          if (Math.abs(image.naturalWidth / image.naturalHeight - source.width / source.height) > 0.01) {
+            throw new Error(`第 ${index + 1} 张图片的比例与源图不一致，可能顺序错乱或上传了其他图片，请手动核对草稿`)
+          }
+        }
+        hashes.push(await fingerprintImage(image))
+        checkAccount()
+      }
+      return hashes
     }
     const verifyImages = async (editor: DraftEditor) => {
       if (!imagesReady(editor, images.length)) throw new Error('草稿图片数量或加载状态不符，请手动核对')
       const imageSources = editor.images.map((image) => ({ src: image.src, currentSrc: image.currentSrc }))
-      for (const [index, image] of editor.images.entries()) {
-        if (await fingerprintImage(image) !== sourceHashes[index]) {
-          throw new Error(`第 ${index + 1} 张图片与源图不一致或平台仅提供缩略图，无法自动确认内容和顺序，请手动核对草稿`)
+      const hashes = await readImageHashes(editor)
+      if (!expectedHashes) {
+        expectedHashes = hashes
+      } else {
+        const changed = hashes.findIndex((hash, index) => hash !== expectedHashes![index])
+        if (changed >= 0) {
+          throw new Error(platformIdentity
+            ? `第 ${changed + 1} 张图片与上传时不一致，可能被替换或顺序变化，请手动核对草稿`
+            : `第 ${changed + 1} 张图片与源图不一致或平台仅提供缩略图，无法自动确认内容和顺序，请手动核对草稿`)
         }
-        checkAccount()
       }
       const current = adapter.getEditor()
       if (!current || !imagesReady(current, images.length) || current.images.some((image, index) =>
@@ -180,7 +203,7 @@ export async function runDraft(
       checkAccount()
       await verifyImages(uploaded)
       checkAccount()
-      await publish({ status: 'running', step: 'filling', imageHashes: sourceHashes, account, message: '正在填写标题和正文' })
+      await publish({ status: 'running', step: 'filling', imageHashes: expectedHashes, account, message: '正在填写标题和正文' })
     }
     if (!imageHashes) throw new Error('缺少本次图片的核对记录，请手动检查草稿')
     const waitForContent = (saved: boolean) => {
