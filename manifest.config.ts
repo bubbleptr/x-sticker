@@ -13,7 +13,7 @@ export default defineManifest({
   name: 'X Sticker',
   short_name: 'X Sticker',
   description: '把 X/Twitter 帖子做成文字封面与原始配图，下载或存到小红书、抖音草稿',
-  version: '0.3.0',
+  version: '0.4.0',
   action: {
     default_title: 'X Sticker',
     default_icon: icons,
