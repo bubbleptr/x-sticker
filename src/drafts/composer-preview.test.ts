@@ -5,7 +5,7 @@ import { renderCardPng } from '../render/card'
 import type { DraftMessage, DraftResponse } from './types'
 import { mockSuccessfulBrowserImages } from '../render/test-browser-images'
 
-vi.mock('../render/card', () => ({ renderCardPng: vi.fn() }))
+vi.mock('../render/card', () => ({ renderCardPng: vi.fn(), renderCardWithPhotoPng: vi.fn() }))
 
 const sendMessage = vi.fn<(message: DraftMessage) => Promise<DraftResponse>>(async () => ({ ok: true, jobs: [] }))
 

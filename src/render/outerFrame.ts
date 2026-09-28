@@ -82,6 +82,13 @@ export function statusCardPlacement(
   return { x: inset, y, width, height: Math.min(naturalH, outH) }
 }
 
+/** Whether the card fits with vertical margins no smaller than the side inset. */
+export function statusCardFits(img: Sized, outW: number, outH: number): boolean {
+  const inset = Math.round(outW * CARD_SIDE_INSET_RATIO)
+  const width = outW - inset * 2
+  return Math.round((img.height / img.width) * width) <= outH - inset * 2
+}
+
 /** White status card, horizontally inset and vertically centered on the outer frame. */
 export function drawStatusCard<TImage extends Sized>(
   ctx: { drawImage(image: TImage, dx: number, dy: number, dw: number, dh: number): void },

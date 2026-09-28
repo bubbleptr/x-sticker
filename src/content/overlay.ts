@@ -1,5 +1,5 @@
 import { encodeImageAsset, loadPostPhoto, type ImageAsset } from '../media'
-import { renderCardPng } from '../render/card'
+import { renderCardPng, renderCardWithPhotoPng } from '../render/card'
 import { createPreviewController } from '../render/preview'
 import { BACKGROUND_PRESETS, BACKGROUND_PRESET_GROUPS } from '../popup/presets'
 import { DEFAULT_INSPECTOR_PREFERENCES, loadInspectorPreferences, saveInspectorPreferences, type InspectorPreferences } from '../inspectorPreferences'
@@ -79,6 +79,7 @@ ${chromeCheckboxCss('.row input[type="checkbox"], .gallery-choice input[type="ch
 .gallery-page[data-selected="false"] .thumbnail { opacity: 0.5; }
 .gallery-choice { display: flex; align-items: center; justify-content: center; gap: 5px; min-height: 40px; font-size: 12px; cursor: pointer; }
 .gallery-choice input { margin: 0; }
+.gallery-note { color: var(--muted); }
 .gallery-cover-label { text-align: center; display: block; padding: 10px 0; font-size: 12px; }
 .preview-label { font-variant-numeric: tabular-nums; }
 .preview-empty { margin: auto; padding: 24px; max-width: 38ch; text-align: center; color: var(--muted); }
@@ -189,6 +190,9 @@ export function openCardOverlay(result: ScrapeResult): void {
     ...(post?.photos ?? []).map((_, index) => ({ id: `photo-${index}`, label: `配图 ${index + 1}`, selected: true, image: null, loading: true, error: '' })),
   ]
   let activePage = pages[0]
+  // A short cover absorbs the first photo so the set does not open with a mostly empty card.
+  const leadPhoto = hasCover ? pages.find((page) => page.id === 'photo-0') : undefined
+  let coverHasLeadPhoto = false
   let paintedImage: ImageAsset | null = null
   let pendingImage: ImageAsset | null = null
   let paintToken = 0
@@ -308,29 +312,33 @@ export function openCardOverlay(result: ScrapeResult): void {
       thumb.hidden = !page.image
       placeholder.hidden = Boolean(page.image)
       placeholder.textContent = page.error ? '加载失败' : '加载中…'
+      const note = item.querySelector<HTMLElement>('.gallery-note')
+      if (note) note.hidden = !(page === leadPhoto && coverHasLeadPhoto)
     }
   }
 
   const syncImages = () => {
     const selected = pages.filter((page) => page.selected)
     const ready = selected.length > 0 && selected.every((page) => page.image)
-    exportImages = ready ? selected.map((page, index) => ({
+    const output = selected.filter((page) => !(page === leadPhoto && coverHasLeadPhoto))
+    exportImages = ready ? output.map((page, index) => ({
       ...page.image!, filename: `${String(index + 1).padStart(2, '0')}-${page.id === 'cover' ? 'cover' : 'photo'}.${page.image!.mimeType.split('/')[1]!.replace('jpeg', 'jpg')}`,
     })) : null
     downloadBtn.disabled = !ready || downloading
-    downloadBtn.textContent = downloading ? '准备下载…' : selected.length > 1 ? '下载整组（ZIP）' : '下载图片'
+    downloadBtn.textContent = downloading ? '准备下载…' : output.length > 1 ? '下载整组（ZIP）' : '下载图片'
     syncDraftSnapshot()
     const failed = selected.find((page) => page.error)
     if (failed) setStatus(`${failed.label}加载失败，${failed.id === 'cover' ? '请重试。' : '请重试或取消勾选。'}`, true)
     else if (!selected.length) setStatus('请至少选择一张图片。')
     else if (!ready) setStatus('正在准备所选图片…')
-    else setStatus(pages.length > 1 ? `已选 ${selected.length} 张，按封面、配图顺序输出` : '预览就绪')
+    else setStatus(pages.length > 1 ? `已选 ${output.length} 张，按封面、配图顺序输出` : '预览就绪')
     showActivePage()
   }
 
   const invalidatePreview = () => {
     const cover = pages.find((page) => page.id === 'cover')
     if (cover) { cover.image = null; cover.loading = true; cover.error = '' }
+    coverHasLeadPhoto = false
     syncImages()
     return ++renderToken
   }
@@ -340,12 +348,19 @@ export function openCardOverlay(result: ScrapeResult): void {
     const cover = pages.find((page) => page.id === 'cover')
     if (!post || !cover) { syncImages(); return }
     const token = invalidatePreview()
+    // The fit decision needs the photo; loadPhoto re-renders the cover once it settles.
+    if (leadPhoto?.selected && leadPhoto.loading) return
     try {
       const customName = customNameEl.value.trim()
       const renderedPost = privacyModeEl.checked ? { ...post, authorDisplayName: customName } : post
-      const bytes = await renderCardPng(renderedPost, currentOptions())
+      const options = currentOptions()
+      const leadImage = leadPhoto?.selected ? leadPhoto.image : null
+      const combined = leadImage ? await renderCardWithPhotoPng(renderedPost, options, leadImage.dataUrl) : null
+      if (token !== renderToken || !host.isConnected) return
+      const bytes = combined ?? await renderCardPng(renderedPost, options)
       if (token !== renderToken || !host.isConnected) return
       cover.image = encodeImageAsset(bytes, 'image/png', '01-cover.png')
+      coverHasLeadPhoto = Boolean(combined)
     } catch (err) {
       if (token !== renderToken || !host.isConnected) return
       cover.error = err instanceof Error ? err.message : '封面生成失败'
@@ -371,6 +386,7 @@ export function openCardOverlay(result: ScrapeResult): void {
     }
     page.loading = false
     syncImages()
+    if (page === leadPhoto) void refreshPreview()
   }
 
   for (const page of pages) {
@@ -398,8 +414,19 @@ export function openCardOverlay(result: ScrapeResult): void {
       const checkbox = document.createElement('input')
       checkbox.type = 'checkbox'
       checkbox.checked = true
-      checkbox.addEventListener('change', () => { page.selected = checkbox.checked; syncImages() })
+      checkbox.addEventListener('change', () => {
+        page.selected = checkbox.checked
+        if (page === leadPhoto) void refreshPreview()
+        else syncImages()
+      })
       label.append(checkbox, page.label)
+      if (page === leadPhoto) {
+        const note = document.createElement('span')
+        note.className = 'gallery-note'
+        note.textContent = '· 已放进封面'
+        note.hidden = true
+        label.append(note)
+      }
       item.append(label)
     }
     gallery.append(item)

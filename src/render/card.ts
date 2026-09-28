@@ -2,7 +2,7 @@ import type { PostText, RenderOptions } from '../types'
 import { ASPECT_SIZE } from '../types'
 import { isBundledBackgroundFile, type BundledBackgroundFile } from '../photoBackgrounds'
 import { formatCompactCount, formatMetaClock } from './format'
-import { drawStatusCard, paintOuterBackground } from './outerFrame'
+import { drawStatusCard, paintOuterBackground, statusCardFits } from './outerFrame'
 import { resolveCardIdentity } from './identity'
 import { buildStatusArticleHtml } from './statusHtml'
 
@@ -208,16 +208,32 @@ export async function renderCardPng(
   return renderStatusPngViaDom(post, options)
 }
 
+/**
+ * Cover with the post's first photo inside the status card, like X status detail.
+ * Returns null when the combined card would not fit the export frame.
+ */
+export async function renderCardWithPhotoPng(
+  post: PostText,
+  options: RenderOptions,
+  photoDataUrl: string,
+): Promise<Uint8Array | null> {
+  if (!isBrowser()) throw new Error('renderCardWithPhotoPng needs a browser')
+  return renderStatusPngViaDom(post, options, photoDataUrl)
+}
+
+async function renderStatusPngViaDom(post: PostText, options: RenderOptions): Promise<Uint8Array>
+async function renderStatusPngViaDom(post: PostText, options: RenderOptions, photoDataUrl: string): Promise<Uint8Array | null>
 async function renderStatusPngViaDom(
   post: PostText,
   options: RenderOptions,
-): Promise<Uint8Array> {
+  photoDataUrl?: string,
+): Promise<Uint8Array | null> {
   const { toPng } = await import('html-to-image')
   const { width: outW, height: outH } = ASPECT_SIZE[options.aspect]
   const articleCssWidth = 598
   const scale = outW / articleCssWidth
 
-  const html = buildStatusArticleHtml(post, options, { articleWidth: articleCssWidth })
+  const html = buildStatusArticleHtml(post, options, { articleWidth: articleCssWidth, photoDataUrl })
   const host = document.createElement('div')
   host.style.cssText = `position:fixed;left:-10000px;top:0;width:${articleCssWidth}px;background:#fff;`
   document.body.appendChild(host)
@@ -237,6 +253,20 @@ async function renderStatusPngViaDom(
   if (!article) {
     host.remove()
     throw new Error('article missing')
+  }
+  const photo = article.querySelector<HTMLImageElement>('.media img')
+  if (photo) {
+    try {
+      await photo.decode()
+    } catch {
+      host.remove()
+      throw new Error('封面配图解码失败')
+    }
+  }
+  // Measure before rasterizing so an oversized combined card costs no PNG encode.
+  if (photoDataUrl && !statusCardFits({ width: articleCssWidth, height: article.scrollHeight }, outW, outH)) {
+    host.remove()
+    return null
   }
 
   const dataUrl = await toPng(article, {
