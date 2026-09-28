@@ -51,6 +51,7 @@ export function createDouyinAdapter(root: Document = document): PlatformAdapter 
 
   return {
     storage: 'unknown',
+    imageIdentity: 'platform',
     getAccount() {
       const names = visible<HTMLElement>('span[class]').filter((element) => hasClassPrefix(element, 'user-name-') && !hasClassPrefix(element, 'user-name-container-'))
       return unique(names, '账号标识')?.textContent?.trim() || null

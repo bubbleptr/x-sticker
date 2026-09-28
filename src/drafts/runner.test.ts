@@ -3,7 +3,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ImageAsset } from '../media'
 import type { PlatformAdapter } from './platform'
 import type { DraftJob, DraftUpdate } from './types'
-vi.mock('./image', () => ({ fingerprintImage: vi.fn(async () => 'a'.repeat(64)), fingerprintSourceImage: vi.fn(async () => 'a'.repeat(64)) }))
+const sourceIdentity = { hash: 'a'.repeat(64), width: 2, height: 2 }
+vi.mock('./image', () => ({ fingerprintImage: vi.fn(async () => 'a'.repeat(64)), fingerprintSourceImage: vi.fn(async () => ({ hash: 'a'.repeat(64), width: 2, height: 2 })) }))
 import { fingerprintImage, fingerprintSourceImage } from './image'
 import { runDraft } from './runner'
 
@@ -31,7 +32,7 @@ function setup(overrides: Partial<PlatformAdapter> = {}) {
   Object.defineProperties(image, { complete: { value: true }, naturalWidth: { value: 2 }, naturalHeight: { value: 2 } })
   document.body.append(image)
   const adapter: PlatformAdapter = {
-    storage: 'browser', getAccount: () => '账号一', getUploadInput: () => null,
+    storage: 'browser', imageIdentity: 'source', getAccount: () => '账号一', getUploadInput: () => null,
     getEditor: () => ({ title, body, images: [image], imageCount: 1 }), hasExistingDraft: () => false,
     dismissGuide: vi.fn(), saveDraft: vi.fn(async () => {}), reopenDraft: vi.fn(async () => {}),
     ...overrides,
@@ -41,7 +42,7 @@ function setup(overrides: Partial<PlatformAdapter> = {}) {
   return { title, body, adapter, report, updates, exec }
 }
 
-afterEach(() => { document.body.innerHTML = ''; vi.restoreAllMocks(); vi.mocked(fingerprintImage).mockResolvedValue('a'.repeat(64)); vi.mocked(fingerprintSourceImage).mockResolvedValue('a'.repeat(64)) })
+afterEach(() => { document.body.innerHTML = ''; vi.restoreAllMocks(); vi.mocked(fingerprintImage).mockResolvedValue('a'.repeat(64)); vi.mocked(fingerprintSourceImage).mockResolvedValue(sourceIdentity) })
 
 describe('draft runner', () => {
   it('rechecks all images after recording the save checkpoint before clicking save', async () => {
@@ -88,6 +89,47 @@ describe('draft runner', () => {
     expect(result.message).toContain('源图')
     expect(context.adapter.saveDraft).not.toHaveBeenCalled()
     expect(context.exec).not.toHaveBeenCalled()
+  })
+
+  function uploadThrough(context: ReturnType<typeof setup>) {
+    const upload = document.createElement('input')
+    upload.type = 'file'
+    document.body.append(upload)
+    let uploaded = false
+    const getEditor = context.adapter.getEditor
+    context.adapter.getEditor = () => uploaded ? getEditor() : null
+    context.adapter.getUploadInput = () => upload
+    upload.addEventListener('change', () => { uploaded = true })
+  }
+
+  it('adopts the pixels a platform shows after upload as the identity checked through save and reopen', async () => {
+    const context = setup({ imageIdentity: 'platform' })
+    uploadThrough(context)
+    // Douyin re-encodes uploads, so its editor never shows the source pixels.
+    vi.mocked(fingerprintImage).mockResolvedValue('b'.repeat(64))
+    const result = await runDraft({ ...job, platform: 'douyin', step: 'opening', imageHashes: undefined }, images, context.adapter, context.report, { timeout: 20 })
+    expect(result.status, result.message).toBe('saved')
+    expect(result.evidence?.imageHashes).toEqual(['b'.repeat(64)])
+    expect(context.updates.find((update) => update.step === 'filling')?.imageHashes).toEqual(['b'.repeat(64)])
+  })
+
+  it('stops a platform-identity upload whose image shape does not match the source at that position', async () => {
+    const context = setup({ imageIdentity: 'platform' })
+    uploadThrough(context)
+    vi.mocked(fingerprintSourceImage).mockResolvedValue({ ...sourceIdentity, width: 4 })
+    const result = await runDraft({ ...job, platform: 'douyin', step: 'opening', imageHashes: undefined }, images, context.adapter, context.report, { timeout: 20 })
+    expect(result.status).toBe('needs_attention')
+    expect(result.message).toContain('第 1 张图片的比例')
+    expect(context.exec).not.toHaveBeenCalled()
+  })
+
+  it('still rejects a platform-identity draft whose image changes after upload', async () => {
+    const context = setup({ imageIdentity: 'platform', reopenDraft: vi.fn(async () => { vi.mocked(fingerprintImage).mockResolvedValue('c'.repeat(64)) }) })
+    uploadThrough(context)
+    vi.mocked(fingerprintImage).mockResolvedValue('b'.repeat(64))
+    const result = await runDraft({ ...job, platform: 'douyin', step: 'opening', imageHashes: undefined }, images, context.adapter, context.report, { timeout: 20 })
+    expect(result.status).toBe('needs_attention')
+    expect(result.message).toContain('与上传时不一致')
   })
 
   it.each(['before_upload', 'while_recording_upload'] as const)('preserves an existing Douyin draft at %s and retries the same task once after it is handled', async (arrival) => {
